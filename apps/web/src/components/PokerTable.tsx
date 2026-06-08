@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { ValidAction } from '@poker/engine';
 import { useTableSocket } from '@/hooks/useTableSocket';
 import { PlayerSeat } from './PlayerSeat';
@@ -32,6 +33,7 @@ interface PokerTableProps {
 }
 
 export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerTableProps) {
+  const router = useRouter();
   const {
     connected,
     tableState,
@@ -69,6 +71,10 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
   const config = tableState?.config;
 
   function handleSitClick(seatIndex: number) {
+    if (!playerId) {
+      router.push(`/login?redirect=/table/${tableId}`);
+      return;
+    }
     setPendingSeatIndex(seatIndex);
     setBuyInInput(String(config?.minBuyInCents ?? 4000));
   }
@@ -186,9 +192,8 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
                 myHoleCards={isMe && myHoleCards ? myHoleCards.holeCards : undefined}
                 seatPosition={pos}
                 onSit={handleSitClick}
-                isLoggedIn={playerId !== null}
                 sessionLoading={sessionLoading}
-                tableId={tableId}
+                isLoggedIn={playerId !== null}
                 revealedCards={revealedCards}
               />
             );
