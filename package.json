@@ -1,0 +1,14 @@
+{
+  "name": "texas-holdem-poker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "dev": "concurrently \"pnpm --filter ws-service dev\" \"pnpm --filter web dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.5.0"
+  }
+}
