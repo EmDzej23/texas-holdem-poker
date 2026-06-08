@@ -92,10 +92,6 @@ wss.on('connection', (ws: WebSocket, req) => {
       }
 
       case 'table:join': {
-        if (!playerId) {
-          sendError(ws, 'AUTH_REQUIRED', 'Send auth first');
-          return;
-        }
         const room = rooms.get(msg.payload.tableId);
         if (!room) {
           sendError(ws, 'TABLE_NOT_FOUND', `No table ${msg.payload.tableId}`);

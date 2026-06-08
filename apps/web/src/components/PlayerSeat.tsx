@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import type { PublicSeatView } from '@poker/shared';
 import { Card } from './Card';
 import { formatCents } from '@/lib/format';
@@ -12,6 +13,8 @@ interface PlayerSeatProps {
   myHoleCards?: [string, string] | undefined;
   seatPosition: { top: string; left: string };
   onSit?: (seatIndex: number) => void;
+  isLoggedIn: boolean;
+  tableId: string;
   revealedCards?: [string, string] | undefined;
 }
 
@@ -23,8 +26,11 @@ export function PlayerSeat({
   myHoleCards,
   seatPosition,
   onSit,
+  isLoggedIn,
+  tableId,
   revealedCards,
 }: PlayerSeatProps) {
+  const router = useRouter();
   const isMe = seat.playerId === myPlayerId;
   const isEmpty = seat.status === 'empty';
   const isFolded = seat.status === 'folded';
@@ -61,10 +67,16 @@ export function PlayerSeat({
         {/* Seat circle */}
         {isEmpty ? (
           <button
-            onClick={() => onSit?.(seat.seatIndex)}
+            onClick={() => {
+              if (!isLoggedIn) {
+                router.push(`/login?redirect=/table/${tableId}`);
+              } else {
+                onSit?.(seat.seatIndex);
+              }
+            }}
             className="w-20 h-20 rounded-full border-2 border-dashed border-gray-400 text-gray-400 text-xs hover:border-yellow-400 hover:text-yellow-400 transition-colors flex items-center justify-center"
           >
-            Sit
+            {isLoggedIn ? 'Sit' : 'Login'}
           </button>
         ) : (
           <div

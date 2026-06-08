@@ -27,7 +27,7 @@ const SEAT_POSITIONS: { top: string; left: string }[] = [
 
 interface PokerTableProps {
   tableId: string;
-  playerId: string;
+  playerId: string | null;
 }
 
 export function PokerTable({ tableId, playerId }: PokerTableProps) {
@@ -94,7 +94,13 @@ export function PokerTable({ tableId, playerId }: PokerTableProps) {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-gray-400 text-sm">{playerId}</span>
+          {playerId ? (
+            <span className="text-gray-400 text-sm">{playerId}</span>
+          ) : (
+            <a href="/login" className="text-xs px-3 py-1 rounded bg-yellow-500 hover:bg-yellow-400 text-black font-bold">
+              Login to play
+            </a>
+          )}
           {mySeat && (
             <span className="text-green-400 text-sm font-semibold">
               {formatCents(mySeat.stackCents)}
@@ -175,10 +181,12 @@ export function PokerTable({ tableId, playerId }: PokerTableProps) {
                 seat={seat}
                 isDealer={isDealer}
                 isActing={isActing}
-                myPlayerId={playerId}
+                myPlayerId={playerId ?? ''}
                 myHoleCards={isMe && myHoleCards ? myHoleCards.holeCards : undefined}
                 seatPosition={pos}
                 onSit={handleSitClick}
+                isLoggedIn={playerId !== null}
+                tableId={tableId}
                 revealedCards={revealedCards}
               />
             );

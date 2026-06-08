@@ -43,7 +43,7 @@ export interface UseTableSocketReturn {
   allIn: () => void;
 }
 
-export function useTableSocket(tableId: string, playerId: string): UseTableSocketReturn {
+export function useTableSocket(tableId: string, playerId: string | null): UseTableSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [tableState, setTableState] = useState<TableUiState | null>(null);
@@ -63,8 +63,9 @@ export function useTableSocket(tableId: string, playerId: string): UseTableSocke
 
     ws.onopen = () => {
       setConnected(true);
-      // Authenticate and join table
-      ws.send(JSON.stringify({ type: 'auth', payload: { token: playerId }, ts: new Date().toISOString() }));
+      if (playerId) {
+        ws.send(JSON.stringify({ type: 'auth', payload: { token: playerId }, ts: new Date().toISOString() }));
+      }
       ws.send(JSON.stringify({ type: 'table:join', payload: { tableId }, ts: new Date().toISOString() }));
     };
 
