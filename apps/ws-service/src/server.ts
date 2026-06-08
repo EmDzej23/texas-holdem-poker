@@ -42,6 +42,7 @@ const defaultConfig: TableConfig = {
 };
 
 const defaultRoom = new TableRoom(defaultConfig, store);
+defaultRoom.clearAllSeats(); // start clean on every (re)start
 rooms.set(defaultConfig.tableId, defaultRoom);
 
 await store.setTable({
@@ -114,6 +115,7 @@ wss.on('connection', (ws: WebSocket, req) => {
         if (!playerId || !currentRoom) return;
         currentRoom.sitPlayer(
           connectionId,
+          playerId,             // pass server-verified identity
           msg.payload.seatIndex,
           msg.payload.buyInCents,
           msg.payload.clientSeed,
@@ -158,6 +160,14 @@ wss.on('connection', (ws: WebSocket, req) => {
       case 'intent:allIn':
         if (playerId && currentRoom) currentRoom.applyPlayerAction(playerId, { type: 'allIn' });
         break;
+
+      case 'admin:reset': {
+        // Dev-only: clear all seats on the current room
+        if (process.env['NODE_ENV'] !== 'production' && currentRoom) {
+          currentRoom.clearAllSeats();
+        }
+        break;
+      }
 
       default:
         // Unknown message type — ignore silently

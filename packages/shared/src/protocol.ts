@@ -48,7 +48,8 @@ export type ClientMessage =
   | WsMessage<'intent:bet', BetPayload>
   | WsMessage<'intent:raise', RaisePayload>
   | WsMessage<'intent:allIn', Record<string, never>>
-  | WsMessage<'hand:seed', ClientSeedPayload>;
+  | WsMessage<'hand:seed', ClientSeedPayload>
+  | WsMessage<'admin:reset', Record<string, never>>;
 
 export interface AuthPayload {
   token: string; // JWT or session token — TODO: verify on server

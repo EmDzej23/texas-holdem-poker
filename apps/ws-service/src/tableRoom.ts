@@ -84,22 +84,36 @@ export class TableRoom {
     displayName: string,
     ip: string,
   ): void {
-    // TODO (anti-collusion): check if another connection from same IP already
-    // seated at this table and flag for review.
-
-    const existing = [...this.clients.values()].find((c) => c.playerId === playerId);
-    if (existing) {
-      // Reconnect: replace socket, mark seat connected
-      existing.ws = ws;
-      this.clients.set(connectionId, { ...existing, ws });
-      const seat = this.tableSeats.find((s) => s.seatIndex === existing.seatIndex);
-      if (seat) {
-        seat.isConnected = true;
-        delete seat.disconnectedAt;
+    // If same player reconnects from a new tab/window, remove the stale entry
+    // so only one connectionId is ever live for a given playerId.
+    if (playerId) {
+      const staleConnId = [...this.clients.entries()].find(([, c]) => c.playerId === playerId)?.[0];
+      if (staleConnId && staleConnId !== connectionId) {
+        const stale = this.clients.get(staleConnId)!;
+        this.clients.delete(staleConnId);
+        // Re-use the stale seat association on the new connection
+        const seat = this.tableSeats.find((s) => s.seatIndex === stale.seatIndex);
+        if (seat) {
+          seat.isConnected = true;
+          delete seat.disconnectedAt;
+        }
+        this.clients.set(connectionId, { ...stale, ws, displayName });
+        this.sendTableState(connectionId);
+        if (this.handState) {
+          const playerSeat = this.handState.seats.find((s) => s.playerId === playerId);
+          if (playerSeat?.holeCards) {
+            this.sendToConnection(connectionId, {
+              type: 'hand:cards',
+              payload: { seatIndex: playerSeat.seatIndex, holeCards: playerSeat.holeCards },
+              ts: new Date().toISOString(),
+            });
+          }
+        }
+        return;
       }
-    } else {
-      this.clients.set(connectionId, { ws, playerId, displayName, ip });
     }
+
+    this.clients.set(connectionId, { ws, playerId, displayName, ip });
 
     // Send full table snapshot to the new/reconnected client
     this.sendTableState(connectionId);
@@ -153,6 +167,7 @@ export class TableRoom {
 
   sitPlayer(
     connectionId: string,
+    verifiedPlayerId: string, // server-verified, not from stale client state
     seatIndex: number,
     buyInCents: number,
     clientSeed: string,
@@ -160,9 +175,9 @@ export class TableRoom {
     const client = this.clients.get(connectionId);
     if (!client) return;
 
-    // Prevent sitting in more than one seat
+    // Use server-verified identity — client.playerId may be stale on reconnect
     const alreadySat = this.tableSeats.find(
-      (s) => s.playerId === client.playerId && s.status !== 'empty',
+      (s) => s.playerId !== '' && s.playerId === verifiedPlayerId && s.status !== 'empty',
     );
     if (alreadySat) {
       this.sendError(connectionId, 'ALREADY_SEATED', 'You are already seated at this table');
@@ -183,7 +198,7 @@ export class TableRoom {
     // TODO (production): verify player has sufficient ledger balance and
     // record a buy-in ledger transaction before crediting the stack.
 
-    seat.playerId = client.playerId;
+    seat.playerId = verifiedPlayerId;
     seat.displayName = client.displayName;
     seat.stackCents = buyInCents;
     seat.status = 'waiting';
@@ -478,6 +493,29 @@ export class TableRoom {
         });
       }
     }
+  }
+
+  /** Remove all players from all seats and cancel any active hand. */
+  clearAllSeats(): void {
+    this.clearTurnTimer();
+    this.handState = undefined;
+    this.pendingStand.clear();
+    for (const seat of this.tableSeats) {
+      seat.playerId = '';
+      seat.displayName = '';
+      seat.stackCents = 0;
+      seat.status = 'empty';
+      seat.isConnected = false;
+      seat.currentStreetBetCents = 0;
+    }
+    for (const client of this.clients.values()) {
+      client.seatIndex = undefined;
+    }
+    // Send fresh table snapshot to every connected client
+    for (const connId of this.clients.keys()) {
+      this.sendTableState(connId);
+    }
+    void this.saveState();
   }
 
   private async saveState(): Promise<void> {
