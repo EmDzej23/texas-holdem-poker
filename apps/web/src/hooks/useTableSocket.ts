@@ -20,6 +20,8 @@ export interface TableUiState {
   currentBetCents: number;
   actingSeatIndex: number;
   dealerSeatIndex: number;
+  sbSeatIndex: number;
+  bbSeatIndex: number;
   turnExpiresAt: number;
   config: TableStatePayload['config'] | null;
   handId?: string | undefined;
@@ -43,7 +45,7 @@ export interface UseTableSocketReturn {
   allIn: () => void;
 }
 
-export function useTableSocket(tableId: string, playerId: string | null): UseTableSocketReturn {
+export function useTableSocket(tableId: string, playerId: string | null, displayName: string | null = null): UseTableSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [tableState, setTableState] = useState<TableUiState | null>(null);
@@ -64,7 +66,7 @@ export function useTableSocket(tableId: string, playerId: string | null): UseTab
     ws.onopen = () => {
       setConnected(true);
       if (playerId) {
-        ws.send(JSON.stringify({ type: 'auth', payload: { token: playerId }, ts: new Date().toISOString() }));
+        ws.send(JSON.stringify({ type: 'auth', payload: { token: playerId, displayName: displayName ?? playerId }, ts: new Date().toISOString() }));
       }
       ws.send(JSON.stringify({ type: 'table:join', payload: { tableId }, ts: new Date().toISOString() }));
     };
@@ -90,6 +92,8 @@ export function useTableSocket(tableId: string, playerId: string | null): UseTab
             currentBetCents: p.currentBetCents,
             actingSeatIndex: p.actingSeatIndex,
             dealerSeatIndex: p.dealerSeatIndex,
+            sbSeatIndex: -1,
+            bbSeatIndex: -1,
             turnExpiresAt: p.turnExpiresAt,
             config: p.config,
             handId: p.handId,
@@ -99,9 +103,13 @@ export function useTableSocket(tableId: string, playerId: string | null): UseTab
 
         case 'table:event': {
           const evt = msg.payload;
-          setEvents((prev) => [...prev.slice(-50), evt]); // keep last 50
-
-          // Merge game events into table state
+          if (evt.type === 'hand:started') {
+            // New hand: clear previous hand's cards and events
+            setEvents([evt]);
+            setMyHoleCards(null);
+          } else {
+            setEvents((prev) => [...prev.slice(-50), evt]);
+          }
           setTableState((prev) => {
             if (!prev) return prev;
             return applyEventToState(prev, evt);
@@ -179,8 +187,29 @@ export function useTableSocket(tableId: string, playerId: string | null): UseTab
 
 function applyEventToState(state: TableUiState, evt: GameEvent): TableUiState {
   switch (evt.type) {
+    case 'hand:started':
+      return {
+        ...state,
+        phase: 'preflop',
+        communityCards: [],
+        pots: [],
+        currentBetCents: 0,
+        actingSeatIndex: -1,
+        dealerSeatIndex: evt.dealerSeat,
+        sbSeatIndex: evt.sbSeat,
+        bbSeatIndex: evt.bbSeat,
+        seats: state.seats.map((s) => ({ ...s, currentStreetBetCents: 0 })),
+      };
+
     case 'phase:changed':
-      return { ...state, phase: evt.phase, communityCards: evt.communityCards };
+      // New street: reset all per-street bet amounts and the table bet level
+      return {
+        ...state,
+        phase: evt.phase,
+        communityCards: evt.communityCards,
+        currentBetCents: 0,
+        seats: state.seats.map((s) => ({ ...s, currentStreetBetCents: 0 })),
+      };
 
     case 'pots:updated':
       return { ...state, pots: evt.pots };
@@ -188,17 +217,44 @@ function applyEventToState(state: TableUiState, evt: GameEvent): TableUiState {
     case 'turn:start':
       return { ...state, actingSeatIndex: evt.seatIndex, turnExpiresAt: evt.expiresAt };
 
+    case 'blind:posted':
     case 'player:acted': {
+      const amountCents = evt.amountCents;
       const newSeats = state.seats.map((s) => {
         if (s.seatIndex !== evt.seatIndex) return s;
-        if (evt.action === 'fold') return { ...s, status: 'folded' as const };
-        return s;
+        const action = 'action' in evt ? evt.action : null;
+        if (action === 'fold') return { ...s, status: 'folded' as const };
+        if (action === 'allIn') {
+          return {
+            ...s,
+            stackCents: Math.max(0, s.stackCents - amountCents),
+            currentStreetBetCents: s.currentStreetBetCents + amountCents,
+            status: 'allIn' as const,
+          };
+        }
+        return {
+          ...s,
+          stackCents: Math.max(0, s.stackCents - amountCents),
+          currentStreetBetCents: s.currentStreetBetCents + amountCents,
+        };
       });
       return { ...state, seats: newSeats };
     }
 
     case 'hand:complete':
-      return { ...state, phase: 'complete', myHoleCards: null } as TableUiState & { myHoleCards: null };
+      return {
+        ...state,
+        phase: 'complete',
+        actingSeatIndex: -1,
+        // Reset seat statuses so face-down cards are hidden immediately
+        seats: state.seats.map((s) => ({
+          ...s,
+          currentStreetBetCents: 0,
+          status: (s.status === 'active' || s.status === 'allIn' || s.status === 'folded')
+            ? ('waiting' as const)
+            : s.status,
+        })),
+      };
 
     default:
       return state;

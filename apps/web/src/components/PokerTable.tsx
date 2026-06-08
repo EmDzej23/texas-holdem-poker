@@ -29,10 +29,11 @@ const SEAT_POSITIONS: { top: string; left: string }[] = [
 interface PokerTableProps {
   tableId: string;
   playerId: string | null;
+  displayName?: string | null;
   sessionLoading?: boolean;
 }
 
-export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerTableProps) {
+export function PokerTable({ tableId, playerId, displayName, sessionLoading = false }: PokerTableProps) {
   const router = useRouter();
   const {
     connected,
@@ -47,7 +48,8 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
     raise,
     allIn,
     sit,
-  } = useTableSocket(tableId, playerId);
+    stand,
+  } = useTableSocket(tableId, playerId, displayName ?? null);
 
   const [showVerifier, setShowVerifier] = useState(false);
   const [buyInInput, setBuyInInput] = useState('');
@@ -102,7 +104,7 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
         </div>
         <div className="flex items-center gap-3">
           {playerId ? (
-            <span className="text-gray-400 text-sm">{playerId}</span>
+            <span className="text-gray-400 text-sm">{displayName ?? playerId}</span>
           ) : (
             <a href="/login" className="text-xs px-3 py-1 rounded bg-yellow-500 hover:bg-yellow-400 text-black font-bold">
               Login to play
@@ -112,6 +114,14 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
             <span className="text-green-400 text-sm font-semibold">
               {formatCents(mySeat.stackCents)}
             </span>
+          )}
+          {mySeat && (
+            <button
+              onClick={stand}
+              className="text-xs px-3 py-1 rounded bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white transition-colors"
+            >
+              Leave Table
+            </button>
           )}
           {latestVerify && (
             <button
@@ -137,18 +147,22 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
           />
 
           {/* Center info */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 pointer-events-none">
             {/* Community cards */}
             <div className="flex gap-2 mb-2">
               {Array.from({ length: 5 }).map((_, i) => {
                 const card = tableState?.communityCards[i];
-                return <Card key={i} card={card} faceDown={!card} small={false} />;
+                return (
+                  <div key={card ?? `slot-${i}`} style={{ perspective: '600px' }}>
+                    <Card card={card} faceDown={!card} small={false} />
+                  </div>
+                );
               })}
             </div>
 
             {/* Pot display */}
             {totalPot > 0 && (
-              <div className="bg-black/40 rounded-full px-4 py-1">
+              <div key={totalPot} className="bg-black/40 rounded-full px-4 py-1 animate-pot-grow">
                 <span className="text-white font-bold text-sm">
                   Pot: {formatCents(totalPot)}
                 </span>
@@ -172,10 +186,12 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
           {(tableState?.seats ?? []).map((seat) => {
             const pos = SEAT_POSITIONS[seat.seatIndex] ?? SEAT_POSITIONS[0]!;
             const isDealer = seat.seatIndex === tableState?.dealerSeatIndex;
+            const isSB = seat.seatIndex === tableState?.sbSeatIndex;
+            const isBB = seat.seatIndex === tableState?.bbSeatIndex;
             const isActing = seat.seatIndex === tableState?.actingSeatIndex;
             const isMe = seat.playerId === playerId;
 
-            const revealedCardsEvt = events.find(
+            const revealedCardsEvt = [...events].reverse().find(
               (e): e is Extract<typeof e, { type: 'showdown' }> => e.type === 'showdown',
             );
             const revealedCards = revealedCardsEvt?.results.find(
@@ -187,6 +203,8 @@ export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerT
                 key={seat.seatIndex}
                 seat={seat}
                 isDealer={isDealer}
+                isSB={isSB}
+                isBB={isBB}
                 isActing={isActing}
                 myPlayerId={playerId ?? ''}
                 myHoleCards={isMe && myHoleCards ? myHoleCards.holeCards : undefined}

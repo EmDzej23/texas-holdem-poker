@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { ValidAction } from '@poker/engine';
 import { formatCents } from '@/lib/format';
 
@@ -41,11 +41,14 @@ export function BetControls({
   const canAllIn = validActions.some((a) => a.type === 'allIn');
 
   const betOrRaise = betAction ?? raiseAction;
-  const minBet = betOrRaise?.minCents ?? bigBlindCents;
-  const maxBet = betOrRaise?.maxCents ?? stackCents;
+  const minBet = Math.max(betOrRaise?.minCents ?? bigBlindCents, bigBlindCents || 1);
+  const maxBet = Math.max(betOrRaise?.maxCents ?? stackCents, minBet);
 
-  const [sliderValue, setSliderValue] = useState<number>(minBet);
+  const [sliderValue, setSliderValue] = useState<number>(() => minBet);
+  // Reset slider to minimum whenever the betting context changes (new turn)
+  useEffect(() => { setSliderValue(minBet); }, [minBet]);
 
+  const effectiveSlider = Math.max(minBet, Math.min(sliderValue, maxBet));
   const callAmount = callAction?.minCents ?? 0;
 
   // Pot-sized raise shortcuts
@@ -53,21 +56,21 @@ export function BetControls({
   const halfPotRaise = Math.min(Math.floor(potCents / 2) + (currentBetCents - myBetCents), maxBet);
 
   const handleBetOrRaise = useCallback(() => {
-    if (betAction) onBet(sliderValue);
-    else if (raiseAction) onRaise(sliderValue);
-  }, [betAction, raiseAction, sliderValue, onBet, onRaise]);
+    if (betAction) onBet(effectiveSlider);
+    else if (raiseAction) onRaise(effectiveSlider);
+  }, [betAction, raiseAction, effectiveSlider, onBet, onRaise]);
 
   if (validActions.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-full max-w-lg px-4">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 animate-slide-up">
       <div className="bg-gray-900/95 border border-gray-600 rounded-2xl p-4 shadow-2xl backdrop-blur">
         {/* Sizing row */}
         {betOrRaise && (
           <div className="mb-3">
             <div className="flex justify-between text-gray-400 text-xs mb-1">
               <span>{formatCents(minBet)}</span>
-              <span className="text-white font-bold">{formatCents(sliderValue)}</span>
+              <span className="text-white font-bold">{formatCents(effectiveSlider)}</span>
               <span>{formatCents(maxBet)}</span>
             </div>
             <input
@@ -75,7 +78,7 @@ export function BetControls({
               min={minBet}
               max={maxBet}
               step={bigBlindCents}
-              value={Math.max(minBet, Math.min(sliderValue, maxBet))}
+              value={effectiveSlider}
               onChange={(e) => setSliderValue(Number(e.target.value))}
               className="w-full accent-yellow-400"
             />
@@ -138,10 +141,10 @@ export function BetControls({
               onClick={handleBetOrRaise}
               className="flex-1 py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-sm transition-colors"
             >
-              {betAction ? 'Bet' : 'Raise'} {formatCents(sliderValue)}
+              {betAction ? 'Bet' : 'Raise'} {formatCents(effectiveSlider)}
             </button>
           )}
-          {canAllIn && !betOrRaise && (
+          {canAllIn && (
             <button
               onClick={onAllIn}
               className="flex-1 py-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition-colors"

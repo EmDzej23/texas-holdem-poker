@@ -19,15 +19,16 @@ interface CardProps {
   card?: string; // e.g. "Ah", "Td"
   faceDown?: boolean;
   small?: boolean;
+  animate?: boolean; // play deal animation on mount
 }
 
-export function Card({ card, faceDown, small }: CardProps) {
+export function Card({ card, faceDown, small, animate = true }: CardProps) {
   const size = small ? 'w-8 h-12 text-xs' : 'w-14 h-20 text-sm';
 
   if (faceDown || !card) {
     return (
       <div
-        className={`${size} rounded-lg border-2 border-gray-400 bg-blue-800 flex items-center justify-center`}
+        className={`${size} ${animate ? 'animate-deal' : ''} rounded-lg border-2 border-gray-400 bg-blue-800 flex items-center justify-center`}
         style={{ backgroundImage: 'repeating-linear-gradient(45deg, #1e40af 0 4px, #1e3a8a 4px 8px)' }}
       />
     );
@@ -40,7 +41,7 @@ export function Card({ card, faceDown, small }: CardProps) {
 
   return (
     <div
-      className={`${size} rounded-lg border-2 border-gray-300 bg-white flex flex-col items-start justify-between p-1 shadow-md select-none`}
+      className={`${size} ${animate ? 'animate-deal' : ''} rounded-lg border-2 border-gray-300 bg-white flex flex-col items-start justify-between p-1 shadow-md select-none`}
     >
       <span className="font-bold leading-none" style={{ color: suitInfo.color }}>
         {rankDisplay}

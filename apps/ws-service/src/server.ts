@@ -87,7 +87,9 @@ wss.on('connection', (ws: WebSocket, req) => {
         // TODO (production): verify JWT, extract playerId and displayName from claims.
         // For now, use a simple token=playerId scheme for dev.
         playerId = msg.payload.token;
-        displayName = playerId ?? 'Guest';
+        displayName = (msg.payload as { token?: string; displayName?: string }).displayName
+          ?? playerId
+          ?? 'Guest';
         break;
       }
 
@@ -98,7 +100,7 @@ wss.on('connection', (ws: WebSocket, req) => {
           return;
         }
         currentRoom = room;
-        room.addClient(connectionId, ws, playerId, displayName, ip);
+        room.addClient(connectionId, ws, playerId ?? '', displayName, ip);
         break;
       }
 

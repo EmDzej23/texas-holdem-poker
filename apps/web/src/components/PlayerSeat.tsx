@@ -7,6 +7,8 @@ import { formatCents } from '@/lib/format';
 interface PlayerSeatProps {
   seat: PublicSeatView;
   isDealer: boolean;
+  isSB: boolean;
+  isBB: boolean;
   isActing: boolean;
   myPlayerId: string;
   myHoleCards?: [string, string] | undefined;
@@ -20,6 +22,8 @@ interface PlayerSeatProps {
 export function PlayerSeat({
   seat,
   isDealer,
+  isSB,
+  isBB,
   isActing,
   myPlayerId,
   myHoleCards,
@@ -37,7 +41,7 @@ export function PlayerSeat({
 
   return (
     <div
-      className="absolute transform -translate-x-1/2 -translate-y-1/2"
+      className="absolute transform -translate-x-1/2 -translate-y-1/2 z-20"
       style={{ top: seatPosition.top, left: seatPosition.left }}
     >
       <div
@@ -50,15 +54,15 @@ export function PlayerSeat({
         {/* Cards */}
         <div className="flex gap-1 mb-1">
           {isEmpty ? null : showFaceDown ? (
-            <>
+            <div key="facedown" className="flex gap-1" style={{ perspective: '400px' }}>
               <Card faceDown small />
               <Card faceDown small />
-            </>
+            </div>
           ) : cards ? (
-            <>
+            <div key={cards[0]} className="flex gap-1" style={{ perspective: '400px' }}>
               <Card card={cards[0]} small />
               <Card card={cards[1]} small />
-            </>
+            </div>
           ) : null}
         </div>
 
@@ -83,28 +87,42 @@ export function PlayerSeat({
             <span className="text-white text-xs font-semibold truncate w-16 px-1">
               {seat.displayName}
             </span>
-            <span className="text-green-400 text-xs font-bold">
+            <span key={seat.stackCents} className="text-green-400 text-xs font-bold animate-stack-flash">
               {formatCents(seat.stackCents)}
             </span>
             {seat.currentStreetBetCents > 0 && (
-              <span className="text-yellow-300 text-[10px]">
+              <span key={seat.currentStreetBetCents} className="text-yellow-300 text-[10px] animate-chip">
                 {formatCents(seat.currentStreetBetCents)}
               </span>
             )}
           </div>
         )}
 
-        {/* Dealer button */}
-        {isDealer && !isEmpty && (
-          <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-white border border-gray-800 text-gray-800 text-[10px] font-bold flex items-center justify-center shadow">
+        {/* Dealer button — always show when this is the dealer seat */}
+        {isDealer && (
+          <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-white border-2 border-gray-800 text-gray-800 text-[10px] font-bold flex items-center justify-center shadow-md z-30">
             D
+          </div>
+        )}
+
+        {/* Small blind chip */}
+        {isSB && !isEmpty && (
+          <div className="absolute -top-1 -left-1 w-6 h-6 rounded-full bg-blue-500 border border-blue-300 text-white text-[9px] font-bold flex items-center justify-center shadow-md z-30">
+            SB
+          </div>
+        )}
+
+        {/* Big blind chip */}
+        {isBB && !isEmpty && (
+          <div className="absolute top-5 -left-1 w-6 h-6 rounded-full bg-red-500 border border-red-300 text-white text-[9px] font-bold flex items-center justify-center shadow-md z-30">
+            BB
           </div>
         )}
 
         {/* Acting timer indicator */}
         {isActing && !isEmpty && (
           <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-16 h-1 bg-gray-700 rounded-full overflow-hidden">
-            <div className="h-full bg-yellow-400 rounded-full animate-[shrink_30s_linear_forwards]" />
+            <div className="h-full bg-yellow-400 rounded-full animate-shrink" />
           </div>
         )}
       </div>

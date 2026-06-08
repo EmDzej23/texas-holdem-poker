@@ -17,6 +17,14 @@ const PokerTable = dynamic(
 export default async function TablePage({ params }: { params: { id: string } }) {
   const session = await auth.api.getSession({ headers: headers() });
   const playerId = session?.user?.id ?? null;
+  const displayName = session?.user?.name ?? null;
 
-  return <PokerTable tableId={params.id} playerId={playerId} sessionLoading={false} />;
+  return (
+    <PokerTable
+      tableId={params.id}
+      playerId={playerId}
+      displayName={displayName}
+      sessionLoading={false}
+    />
+  );
 }

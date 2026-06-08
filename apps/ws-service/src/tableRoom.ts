@@ -50,6 +50,7 @@ export class TableRoom {
   private dealerSeatIndex = 0;
   private turnTimer?: ReturnType<typeof setTimeout> | undefined;
   private seq = 0;
+  private pendingStand = new Set<string>(); // playerIds who requested leave mid-hand
 
   constructor(
     public readonly config: TableConfig,
@@ -159,6 +160,15 @@ export class TableRoom {
     const client = this.clients.get(connectionId);
     if (!client) return;
 
+    // Prevent sitting in more than one seat
+    const alreadySat = this.tableSeats.find(
+      (s) => s.playerId === client.playerId && s.status !== 'empty',
+    );
+    if (alreadySat) {
+      this.sendError(connectionId, 'ALREADY_SEATED', 'You are already seated at this table');
+      return;
+    }
+
     const seat = this.tableSeats[seatIndex];
     if (!seat || seat.status !== 'empty') {
       this.sendError(connectionId, 'SEAT_TAKEN', 'Seat is not available');
@@ -197,24 +207,42 @@ export class TableRoom {
     const client = this.clients.get(connectionId);
     if (!client || client.seatIndex === undefined) return;
 
-    const seat = this.tableSeats.find((s) => s.seatIndex === client.seatIndex);
+    const seatIndex = client.seatIndex;
+    const seat = this.tableSeats.find((s) => s.seatIndex === seatIndex);
     if (!seat) return;
 
-    // If in an active hand, fold first
-    if (this.handState) {
-      const handSeat = this.handState.seats.find((s) => s.seatIndex === client.seatIndex);
+    // If in an active hand, schedule a fold and defer the seat cleanup
+    if (this.handState && this.handState.phase !== 'complete') {
+      const handSeat = this.handState.seats.find((s) => s.seatIndex === seatIndex);
       if (handSeat && handSeat.status === 'active') {
-        this.applyPlayerAction(client.playerId, { type: 'fold' });
+        this.pendingStand.add(client.playerId);
+        if (this.handState.actingSeatIndex === seatIndex) {
+          // Their turn — fold now; seat will clear after hand completes
+          this.applyPlayerAction(client.playerId, { type: 'fold' });
+        }
+        // Not their turn — will auto-fold in scheduleTurnTimer when their turn comes
+        return;
       }
     }
 
     // TODO (production): record cash-out ledger transaction for seat.stackCents
+    this.completeSeatStand(connectionId);
+  }
+
+  /** Zero out a seat and broadcast the empty state. */
+  private completeSeatStand(connectionId: string): void {
+    const client = this.clients.get(connectionId);
+    if (!client || client.seatIndex === undefined) return;
+
+    const seat = this.tableSeats.find((s) => s.seatIndex === client.seatIndex);
+    if (!seat) return;
 
     seat.playerId = '';
     seat.displayName = '';
     seat.stackCents = 0;
     seat.status = 'empty';
     seat.isConnected = false;
+    seat.currentStreetBetCents = 0;
     client.seatIndex = undefined;
 
     this.broadcast({
@@ -222,6 +250,17 @@ export class TableRoom {
       payload: { tableId: this.config.tableId, seat: toPublicSeatView(seat) },
       ts: new Date().toISOString(),
     });
+  }
+
+  /** After hand completion, resolve any players who requested to leave mid-hand. */
+  private processPendingStands(): void {
+    if (this.pendingStand.size === 0) return;
+    if (this.handState && this.handState.phase !== 'complete') return;
+    for (const playerId of [...this.pendingStand]) {
+      this.pendingStand.delete(playerId);
+      const connId = this.connectionIdForPlayer(playerId);
+      if (connId) this.completeSeatStand(connId);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -245,6 +284,8 @@ export class TableRoom {
     this.handState = result.state;
     this.processEvents(result.events);
     this.updateTableSeatsFromHand();
+    this.processPendingStands();
+    this.broadcastSeatUpdates();
     this.saveState();
     this.scheduleTurnTimer();
   }
@@ -330,8 +371,12 @@ export class TableRoom {
           ts: new Date().toISOString(),
         });
 
-        // Start next hand after a short delay
-        setTimeout(() => this.maybeStartHand(), 3000);
+        // Start next hand after a short delay; stand pending players and remove 0-chip players first
+        setTimeout(() => {
+          this.processPendingStands();
+          this.removeZeroChipPlayers();
+          this.maybeStartHand();
+        }, 3000);
       }
     }
   }
@@ -342,6 +387,17 @@ export class TableRoom {
 
   private scheduleTurnTimer(): void {
     if (!this.handState || this.handState.phase === 'complete') return;
+
+    // Auto-fold acting player if they've requested to leave
+    const actingSeat = this.handState.seats.find(
+      (s) => s.seatIndex === this.handState!.actingSeatIndex,
+    );
+    if (actingSeat && this.pendingStand.has(actingSeat.playerId)) {
+      const pid = actingSeat.playerId;
+      setTimeout(() => this.applyPlayerAction(pid, { type: 'fold' }), 0);
+      return;
+    }
+
     const delay = Math.max(0, this.handState.turnExpiresAt - Date.now()) + 500; // +500ms grace
     this.turnTimer = setTimeout(() => this.onTurnTimeout(), delay);
   }
@@ -360,6 +416,8 @@ export class TableRoom {
     this.handState = result.state;
     this.processEvents(result.events);
     this.updateTableSeatsFromHand();
+    this.processPendingStands();
+    this.broadcastSeatUpdates();
     this.saveState();
     this.scheduleTurnTimer();
   }
@@ -368,14 +426,56 @@ export class TableRoom {
   // State sync
   // ---------------------------------------------------------------------------
 
-  /** Mirror hand seat stacks back to table seats after each action. */
+  /** Mirror hand seat stacks/bets/status back to table seats after each action. */
   private updateTableSeatsFromHand(): void {
     if (!this.handState) return;
     for (const handSeat of this.handState.seats) {
       const tableSeat = this.tableSeats.find((s) => s.seatIndex === handSeat.seatIndex);
       if (tableSeat) {
         tableSeat.stackCents = handSeat.stackCents;
-        tableSeat.status = handSeat.status as SeatStatus;
+        tableSeat.currentStreetBetCents = handSeat.currentStreetBetCents;
+        if (this.handState.phase === 'complete') {
+          // Reset to waiting (with chips) so next hand can include them
+          tableSeat.status = handSeat.stackCents > 0 ? 'waiting' : handSeat.status as SeatStatus;
+        } else {
+          tableSeat.status = handSeat.status as SeatStatus;
+        }
+      }
+    }
+  }
+
+  /** Remove seated players who have 0 chips and broadcast the empty seats. */
+  private removeZeroChipPlayers(): void {
+    for (const seat of this.tableSeats) {
+      if (seat.status === 'empty' || seat.stackCents > 0) continue;
+      for (const [, client] of this.clients.entries()) {
+        if (client.seatIndex === seat.seatIndex) {
+          client.seatIndex = undefined;
+          break;
+        }
+      }
+      seat.playerId = '';
+      seat.displayName = '';
+      seat.status = 'empty';
+      seat.isConnected = false;
+      seat.currentStreetBetCents = 0;
+      this.broadcast({
+        type: 'seat:updated',
+        payload: { tableId: this.config.tableId, seat: toPublicSeatView(seat) },
+        ts: new Date().toISOString(),
+      });
+    }
+  }
+
+  /** Broadcast current seat state for all occupied seats. */
+  private broadcastSeatUpdates(): void {
+    for (const seat of this.tableSeats) {
+      if (seat.status !== 'empty') {
+        this.broadcast({
+          type: 'seat:updated',
+          payload: { tableId: this.config.tableId, seat: toPublicSeatView(seat) },
+          ts: new Date().toISOString(),
+        });
       }
     }
   }
