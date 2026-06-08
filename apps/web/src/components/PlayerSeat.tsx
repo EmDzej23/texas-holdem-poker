@@ -14,6 +14,7 @@ interface PlayerSeatProps {
   seatPosition: { top: string; left: string };
   onSit?: (seatIndex: number) => void;
   isLoggedIn: boolean;
+  sessionLoading: boolean;
   tableId: string;
   revealedCards?: [string, string] | undefined;
 }
@@ -27,6 +28,7 @@ export function PlayerSeat({
   seatPosition,
   onSit,
   isLoggedIn,
+  sessionLoading,
   tableId,
   revealedCards,
 }: PlayerSeatProps) {
@@ -67,6 +69,7 @@ export function PlayerSeat({
         {/* Seat circle */}
         {isEmpty ? (
           <button
+            disabled={sessionLoading}
             onClick={() => {
               if (!isLoggedIn) {
                 router.push(`/login?redirect=/table/${tableId}`);
@@ -74,9 +77,9 @@ export function PlayerSeat({
                 onSit?.(seat.seatIndex);
               }
             }}
-            className="w-20 h-20 rounded-full border-2 border-dashed border-gray-400 text-gray-400 text-xs hover:border-yellow-400 hover:text-yellow-400 transition-colors flex items-center justify-center"
+            className="w-20 h-20 rounded-full border-2 border-dashed border-gray-400 text-gray-400 text-xs hover:border-yellow-400 hover:text-yellow-400 disabled:opacity-40 disabled:cursor-wait transition-colors flex items-center justify-center"
           >
-            {isLoggedIn ? 'Sit' : 'Login'}
+            {sessionLoading ? '…' : isLoggedIn ? 'Sit' : 'Login'}
           </button>
         ) : (
           <div

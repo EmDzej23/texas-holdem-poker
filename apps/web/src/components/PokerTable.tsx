@@ -28,9 +28,10 @@ const SEAT_POSITIONS: { top: string; left: string }[] = [
 interface PokerTableProps {
   tableId: string;
   playerId: string | null;
+  sessionLoading?: boolean;
 }
 
-export function PokerTable({ tableId, playerId }: PokerTableProps) {
+export function PokerTable({ tableId, playerId, sessionLoading = false }: PokerTableProps) {
   const {
     connected,
     tableState,
@@ -186,6 +187,7 @@ export function PokerTable({ tableId, playerId }: PokerTableProps) {
                 seatPosition={pos}
                 onSit={handleSitClick}
                 isLoggedIn={playerId !== null}
+                sessionLoading={sessionLoading}
                 tableId={tableId}
                 revealedCards={revealedCards}
               />
