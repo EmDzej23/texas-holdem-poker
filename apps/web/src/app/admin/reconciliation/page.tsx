@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { getDb, createAdminRepository } from '@poker/db';
 import { formatMoney } from '@/lib/format';
 

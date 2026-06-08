@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { getDb, createAdminRepository } from '@poker/db';
 import { formatMoney, formatTokens } from '@/lib/format';
 import Link from 'next/link';

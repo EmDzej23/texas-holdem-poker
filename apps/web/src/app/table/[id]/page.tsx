@@ -1,13 +1,22 @@
-'use client';
+import { headers } from 'next/headers';
+import { auth } from '@/lib/auth';
+import dynamic from 'next/dynamic';
 
-import { useParams } from 'next/navigation';
-import { useSession } from '@/lib/auth-client';
-import { PokerTable } from '@/components/PokerTable';
+const PokerTable = dynamic(
+  () => import('@/components/PokerTable').then((m) => m.PokerTable),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <span className="text-gray-400 text-sm">Loading table…</span>
+      </div>
+    ),
+  },
+);
 
-export default function TablePage() {
-  const params = useParams<{ id: string }>();
-  const { data: session, isPending } = useSession();
+export default async function TablePage({ params }: { params: { id: string } }) {
+  const session = await auth.api.getSession({ headers: headers() });
   const playerId = session?.user?.id ?? null;
 
-  return <PokerTable tableId={params.id} playerId={playerId} sessionLoading={isPending} />;
+  return <PokerTable tableId={params.id} playerId={playerId} sessionLoading={false} />;
 }
