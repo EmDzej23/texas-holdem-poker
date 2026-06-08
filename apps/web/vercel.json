@@ -1,0 +1,5 @@
+{
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "cd ../.. && pnpm --filter @poker/engine build && pnpm --filter @poker/shared build && pnpm --filter @poker/db build && pnpm --filter web build",
+  "outputDirectory": ".next"
+}
