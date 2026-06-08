@@ -245,26 +245,36 @@ function transitionToFlop(state: HandState): EngineResult {
     ? (state as HandState & { _config?: TableConfig })._config?.bigBlindCents ?? 0
     : 0;
 
-  const firstToAct = buildActingQueue(s, false)[0];
-  if (firstToAct === undefined) return runAllInRunout(s);
+  const streetEvents: GameEvent[] = [
+    { type: 'phase:changed', phase: 'flop', communityCards: s.communityCards },
+    { type: 'pots:updated', pots: s.pots },
+  ];
 
+  const activeSeats = s.seats.filter((x) => x.status === 'active');
+  const allInSeats = s.seats.filter((x) => x.status === 'allIn');
+  if (activeSeats.length === 0 || (activeSeats.length === 1 && allInSeats.length > 0)) {
+    const runout = runAllInRunout(s);
+    return { state: runout.state, events: [...streetEvents, ...runout.events] };
+  }
+
+  const firstToAct = buildActingQueue(s, false)[0]!;
   s.actingSeatIndex = firstToAct;
   s.streetActionCount = 0;
   s.turnExpiresAt = Date.now() + 30_000;
 
-  const events: GameEvent[] = [
-    { type: 'phase:changed', phase: 'flop', communityCards: s.communityCards },
-    { type: 'pots:updated', pots: s.pots },
-    {
-      type: 'turn:start',
-      seatIndex: firstToAct,
-      playerId: s.seats.find((x) => x.seatIndex === firstToAct)!.playerId,
-      validActions: getValidActions(s),
-      expiresAt: s.turnExpiresAt,
-    },
-  ];
-
-  return { state: s, events };
+  return {
+    state: s,
+    events: [
+      ...streetEvents,
+      {
+        type: 'turn:start',
+        seatIndex: firstToAct,
+        playerId: s.seats.find((x) => x.seatIndex === firstToAct)!.playerId,
+        validActions: getValidActions(s),
+        expiresAt: s.turnExpiresAt,
+      },
+    ],
+  };
 }
 
 function transitionToTurn(state: HandState): EngineResult {
@@ -279,26 +289,36 @@ function transitionToTurn(state: HandState): EngineResult {
   s.communityCards = [...s.communityCards, ...turnCard];
   s.phase = 'turn';
 
-  const firstToAct = buildActingQueue(s, false)[0];
-  if (firstToAct === undefined) return runAllInRunout(s);
+  const streetEvents: GameEvent[] = [
+    { type: 'phase:changed', phase: 'turn', communityCards: s.communityCards },
+    { type: 'pots:updated', pots: s.pots },
+  ];
 
+  const activeSeats = s.seats.filter((x) => x.status === 'active');
+  const allInSeats = s.seats.filter((x) => x.status === 'allIn');
+  if (activeSeats.length === 0 || (activeSeats.length === 1 && allInSeats.length > 0)) {
+    const runout = runAllInRunout(s);
+    return { state: runout.state, events: [...streetEvents, ...runout.events] };
+  }
+
+  const firstToAct = buildActingQueue(s, false)[0]!;
   s.actingSeatIndex = firstToAct;
   s.streetActionCount = 0;
   s.turnExpiresAt = Date.now() + 30_000;
 
-  const events: GameEvent[] = [
-    { type: 'phase:changed', phase: 'turn', communityCards: s.communityCards },
-    { type: 'pots:updated', pots: s.pots },
-    {
-      type: 'turn:start',
-      seatIndex: firstToAct,
-      playerId: s.seats.find((x) => x.seatIndex === firstToAct)!.playerId,
-      validActions: getValidActions(s),
-      expiresAt: s.turnExpiresAt,
-    },
-  ];
-
-  return { state: s, events };
+  return {
+    state: s,
+    events: [
+      ...streetEvents,
+      {
+        type: 'turn:start',
+        seatIndex: firstToAct,
+        playerId: s.seats.find((x) => x.seatIndex === firstToAct)!.playerId,
+        validActions: getValidActions(s),
+        expiresAt: s.turnExpiresAt,
+      },
+    ],
+  };
 }
 
 function transitionToRiver(state: HandState): EngineResult {
@@ -313,26 +333,36 @@ function transitionToRiver(state: HandState): EngineResult {
   s.communityCards = [...s.communityCards, ...river];
   s.phase = 'river';
 
-  const firstToAct = buildActingQueue(s, false)[0];
-  if (firstToAct === undefined) return runAllInRunout(s);
+  const streetEvents: GameEvent[] = [
+    { type: 'phase:changed', phase: 'river', communityCards: s.communityCards },
+    { type: 'pots:updated', pots: s.pots },
+  ];
 
+  const activeSeats = s.seats.filter((x) => x.status === 'active');
+  const allInSeats = s.seats.filter((x) => x.status === 'allIn');
+  if (activeSeats.length === 0 || (activeSeats.length === 1 && allInSeats.length > 0)) {
+    const runout = runAllInRunout(s);
+    return { state: runout.state, events: [...streetEvents, ...runout.events] };
+  }
+
+  const firstToAct = buildActingQueue(s, false)[0]!;
   s.actingSeatIndex = firstToAct;
   s.streetActionCount = 0;
   s.turnExpiresAt = Date.now() + 30_000;
 
-  const events: GameEvent[] = [
-    { type: 'phase:changed', phase: 'river', communityCards: s.communityCards },
-    { type: 'pots:updated', pots: s.pots },
-    {
-      type: 'turn:start',
-      seatIndex: firstToAct,
-      playerId: s.seats.find((x) => x.seatIndex === firstToAct)!.playerId,
-      validActions: getValidActions(s),
-      expiresAt: s.turnExpiresAt,
-    },
-  ];
-
-  return { state: s, events };
+  return {
+    state: s,
+    events: [
+      ...streetEvents,
+      {
+        type: 'turn:start',
+        seatIndex: firstToAct,
+        playerId: s.seats.find((x) => x.seatIndex === firstToAct)!.playerId,
+        validActions: getValidActions(s),
+        expiresAt: s.turnExpiresAt,
+      },
+    ],
+  };
 }
 
 /** When all active players are all-in, run out remaining community cards automatically. */

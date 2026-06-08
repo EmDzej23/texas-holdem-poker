@@ -63,11 +63,11 @@ export function BetControls({
   if (validActions.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 animate-slide-up">
-      <div className="bg-gray-900/95 border border-gray-600 rounded-2xl p-4 shadow-2xl backdrop-blur">
+    <div className="fixed bottom-0 sm:bottom-4 left-0 right-0 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 w-full sm:max-w-lg sm:px-4 animate-slide-up z-40">
+      <div className="bg-gray-900/98 border border-gray-600 sm:rounded-2xl rounded-t-2xl p-3 sm:p-4 shadow-2xl backdrop-blur pb-safe">
         {/* Sizing row */}
         {betOrRaise && (
-          <div className="mb-3">
+          <div className="mb-2 sm:mb-3">
             <div className="flex justify-between text-gray-400 text-xs mb-1">
               <span>{formatCents(minBet)}</span>
               <span className="text-white font-bold">{formatCents(effectiveSlider)}</span>
@@ -80,14 +80,14 @@ export function BetControls({
               step={bigBlindCents}
               value={effectiveSlider}
               onChange={(e) => setSliderValue(Number(e.target.value))}
-              className="w-full accent-yellow-400"
+              className="w-full accent-yellow-400 h-6"
             />
             {/* Quick-size buttons */}
-            <div className="flex gap-2 mt-2">
+            <div className="flex gap-1.5 sm:gap-2 mt-1.5 sm:mt-2">
               {halfPotRaise >= minBet && halfPotRaise <= maxBet && (
                 <button
                   onClick={() => setSliderValue(halfPotRaise)}
-                  className="flex-1 text-xs py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600"
+                  className="flex-1 text-xs py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 active:bg-gray-500"
                 >
                   ½ Pot
                 </button>
@@ -95,14 +95,14 @@ export function BetControls({
               {potRaise >= minBet && potRaise <= maxBet && (
                 <button
                   onClick={() => setSliderValue(potRaise)}
-                  className="flex-1 text-xs py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600"
+                  className="flex-1 text-xs py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 active:bg-gray-500"
                 >
                   Pot
                 </button>
               )}
               <button
                 onClick={() => setSliderValue(maxBet)}
-                className="flex-1 text-xs py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600"
+                className="flex-1 text-xs py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 active:bg-gray-500"
               >
                 Max
               </button>
@@ -111,11 +111,11 @@ export function BetControls({
         )}
 
         {/* Action buttons */}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 sm:gap-2">
           {canFold && (
             <button
               onClick={onFold}
-              className="flex-1 py-3 rounded-xl bg-red-700 hover:bg-red-600 text-white font-bold text-sm transition-colors"
+              className="flex-1 py-3 sm:py-3 rounded-xl bg-red-700 hover:bg-red-600 active:bg-red-500 text-white font-bold text-xs sm:text-sm transition-colors"
             >
               Fold
             </button>
@@ -123,7 +123,7 @@ export function BetControls({
           {canCheck && (
             <button
               onClick={onCheck}
-              className="flex-1 py-3 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-bold text-sm transition-colors"
+              className="flex-1 py-3 rounded-xl bg-blue-700 hover:bg-blue-600 active:bg-blue-500 text-white font-bold text-xs sm:text-sm transition-colors"
             >
               Check
             </button>
@@ -131,7 +131,7 @@ export function BetControls({
           {callAction && (
             <button
               onClick={onCall}
-              className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm transition-colors"
+              className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-400 text-white font-bold text-xs sm:text-sm transition-colors"
             >
               Call {formatCents(callAmount)}
             </button>
@@ -139,7 +139,7 @@ export function BetControls({
           {betOrRaise && (
             <button
               onClick={handleBetOrRaise}
-              className="flex-1 py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-sm transition-colors"
+              className="flex-1 py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 active:bg-yellow-300 text-black font-bold text-xs sm:text-sm transition-colors"
             >
               {betAction ? 'Bet' : 'Raise'} {formatCents(effectiveSlider)}
             </button>
@@ -147,7 +147,7 @@ export function BetControls({
           {canAllIn && (
             <button
               onClick={onAllIn}
-              className="flex-1 py-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition-colors"
+              className="flex-1 py-3 rounded-xl bg-orange-600 hover:bg-orange-500 active:bg-orange-400 text-white font-bold text-xs sm:text-sm transition-colors"
             >
               All-In {formatCents(stackCents)}
             </button>

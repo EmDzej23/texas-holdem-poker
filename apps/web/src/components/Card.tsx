@@ -23,7 +23,9 @@ interface CardProps {
 }
 
 export function Card({ card, faceDown, small, animate = true }: CardProps) {
-  const size = small ? 'w-8 h-12 text-xs' : 'w-14 h-20 text-sm';
+  const size = small
+    ? 'w-5 h-8 sm:w-6 sm:h-9 md:w-8 md:h-12 text-[9px] sm:text-[10px] md:text-xs'
+    : 'w-9 h-14 sm:w-11 sm:h-16 md:w-14 md:h-20 text-xs sm:text-sm';
 
   if (faceDown || !card) {
     return (

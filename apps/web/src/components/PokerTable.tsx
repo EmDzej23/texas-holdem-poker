@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ValidAction } from '@poker/engine';
 import { useTableSocket } from '@/hooks/useTableSocket';
@@ -8,6 +8,8 @@ import { PlayerSeat } from './PlayerSeat';
 import { Card } from './Card';
 import { BetControls } from './BetControls';
 import { HandVerifier } from './HandVerifier';
+import { WinnerOverlay, type WinnerDisplayInfo } from './WinnerOverlay';
+import { NewHandBanner } from './NewHandBanner';
 import { formatCents } from '@/lib/format';
 
 // ---------------------------------------------------------------------------
@@ -54,6 +56,80 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
   const [showVerifier, setShowVerifier] = useState(false);
   const [buyInInput, setBuyInInput] = useState('');
   const [pendingSeatIndex, setPendingSeatIndex] = useState<number | null>(null);
+  const [winnerData, setWinnerData] = useState<{ winners: WinnerDisplayInfo[]; isFoldWin: boolean } | null>(null);
+  const [newHandDealerName, setNewHandDealerName] = useState<string | null>(null);
+  const [newHandKey, setNewHandKey] = useState(0);
+
+  const handCompleteSeenRef = useRef(0);
+  const handStartedSeenRef = useRef(0);
+
+  const dismissWinner = useCallback(() => setWinnerData(null), []);
+
+  // Detect hand:complete → build winner overlay
+  useEffect(() => {
+    const completeCount = events.filter((e) => e.type === 'hand:complete').length;
+    if (completeCount === 0 || completeCount <= handCompleteSeenRef.current) return;
+    handCompleteSeenRef.current = completeCount;
+
+    // Collect all pot:awarded winners this hand
+    const awardedEvts = events.filter(
+      (e): e is Extract<typeof e, { type: 'pot:awarded' }> => e.type === 'pot:awarded',
+    );
+    const showdownEvt = [...events].reverse().find(
+      (e): e is Extract<typeof e, { type: 'showdown' }> => e.type === 'showdown',
+    );
+
+    const isFoldWin = !showdownEvt;
+
+    // Aggregate amounts per winner (multiple side pots can have same winner)
+    const amountByPlayer = new Map<string, number>();
+    for (const evt of awardedEvts) {
+      for (const w of evt.winners) {
+        amountByPlayer.set(w.playerId, (amountByPlayer.get(w.playerId) ?? 0) + w.amountCents);
+      }
+    }
+
+    const seats = tableState?.seats ?? [];
+    const winners: WinnerDisplayInfo[] = [...amountByPlayer.entries()].map(([pid, amt]) => {
+      const seat = seats.find((s) => s.playerId === pid);
+      const sdResult = showdownEvt?.results.find((r) => r.playerId === pid);
+      return {
+        displayName: seat?.displayName ?? pid,
+        playerId: pid,
+        amountCents: amt,
+        holeCards: sdResult?.holeCards,
+        handDescription: sdResult?.handDescription,
+        isMe: pid === playerId,
+      };
+    });
+
+    if (winners.length > 0) {
+      setWinnerData({ winners, isFoldWin });
+    }
+  }, [events, tableState?.seats, playerId]);
+
+  // Detect hand:started → show new hand banner; reset winner tracking
+  useEffect(() => {
+    const startedCount = events.filter((e) => e.type === 'hand:started').length;
+    if (startedCount === 0 || startedCount <= handStartedSeenRef.current) return;
+    handStartedSeenRef.current = startedCount;
+
+    // Reset hand:complete counter so next hand's complete is detected fresh
+    handCompleteSeenRef.current = 0;
+
+    // Dismiss winner overlay when new hand starts
+    setWinnerData(null);
+
+    // Show new hand banner — find dealer name
+    const startEvt = [...events].reverse().find(
+      (e): e is Extract<typeof e, { type: 'hand:started' }> => e.type === 'hand:started',
+    );
+    if (startEvt) {
+      const dealerSeat = tableState?.seats.find((s) => s.seatIndex === startEvt.dealerSeat);
+      setNewHandDealerName(dealerSeat?.displayName ?? null);
+      setNewHandKey((k) => k + 1);
+    }
+  }, [events, tableState?.seats]);
 
   const mySeat = tableState?.seats.find((s) => s.playerId === playerId);
   const isMyTurn =
@@ -92,54 +168,59 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
   return (
     <div className="relative min-h-screen bg-gray-950 flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-800">
-        <div className="flex items-center gap-3">
-          <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`} />
-          <span className="text-gray-400 text-sm">Table {tableId}</span>
+      <header className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-gray-900 border-b border-gray-800">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? 'bg-green-400' : 'bg-red-400'}`} />
+          <span className="text-gray-400 text-xs sm:text-sm">Table {tableId}</span>
           {config && (
-            <span className="text-gray-500 text-xs">
+            <span className="text-gray-500 text-xs hidden sm:inline">
               {formatCents(config.smallBlindCents)}/{formatCents(config.bigBlindCents)} · rake {config.rakePercent}%
             </span>
           )}
+          {config && (
+            <span className="text-gray-500 text-xs sm:hidden">
+              {formatCents(config.smallBlindCents)}/{formatCents(config.bigBlindCents)}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {playerId ? (
-            <span className="text-gray-400 text-sm">{displayName ?? playerId}</span>
+            <span className="text-gray-400 text-xs sm:text-sm truncate max-w-[80px] sm:max-w-none">{displayName ?? playerId}</span>
           ) : (
-            <a href="/login" className="text-xs px-3 py-1 rounded bg-yellow-500 hover:bg-yellow-400 text-black font-bold">
-              Login to play
+            <a href="/login" className="text-xs px-2 sm:px-3 py-1 rounded bg-yellow-500 hover:bg-yellow-400 text-black font-bold">
+              Login
             </a>
           )}
           {mySeat && (
-            <span className="text-green-400 text-sm font-semibold">
+            <span className="text-green-400 text-xs sm:text-sm font-semibold">
               {formatCents(mySeat.stackCents)}
             </span>
           )}
           {mySeat && (
             <button
               onClick={stand}
-              className="text-xs px-3 py-1 rounded bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white transition-colors"
+              className="text-xs px-2 sm:px-3 py-1 rounded bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white transition-colors"
             >
-              Leave Table
+              Leave
             </button>
           )}
           {latestVerify && (
             <button
               onClick={() => setShowVerifier((v) => !v)}
-              className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+              className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 hidden sm:inline"
             >
-              {showVerifier ? 'Hide' : 'Verify hand'}
+              {showVerifier ? 'Hide' : 'Verify'}
             </button>
           )}
         </div>
       </header>
 
       {/* Table surface */}
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="relative w-full max-w-3xl aspect-[16/10]">
+      <div className="flex-1 flex items-center justify-center p-2 sm:p-4 pb-24 sm:pb-28">
+        <div className="relative w-full max-w-sm sm:max-w-xl md:max-w-3xl aspect-[16/10]">
           {/* Felt */}
           <div
-            className="absolute inset-0 rounded-[50%] border-8 border-amber-900"
+            className="absolute inset-0 rounded-[50%] border-4 sm:border-8 border-amber-900"
             style={{
               background: 'radial-gradient(ellipse at center, #166534 60%, #14532d 100%)',
               boxShadow: '0 0 60px rgba(0,0,0,0.8), inset 0 0 40px rgba(0,0,0,0.3)',
@@ -147,14 +228,14 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
           />
 
           {/* Center info */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 pointer-events-none">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 sm:gap-2 z-10 pointer-events-none">
             {/* Community cards */}
-            <div className="flex gap-2 mb-2">
+            <div className="flex gap-1 sm:gap-2 mb-1 sm:mb-2">
               {Array.from({ length: 5 }).map((_, i) => {
                 const card = tableState?.communityCards[i];
                 return (
                   <div key={card ?? `slot-${i}`} style={{ perspective: '600px' }}>
-                    <Card card={card} faceDown={!card} small={false} />
+                    <Card card={card} faceDown={!card} />
                   </div>
                 );
               })}
@@ -162,13 +243,13 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
 
             {/* Pot display */}
             {totalPot > 0 && (
-              <div key={totalPot} className="bg-black/40 rounded-full px-4 py-1 animate-pot-grow">
-                <span className="text-white font-bold text-sm">
+              <div key={totalPot} className="bg-black/40 rounded-full px-3 py-0.5 sm:px-4 sm:py-1 animate-pot-grow">
+                <span className="text-white font-bold text-xs sm:text-sm">
                   Pot: {formatCents(totalPot)}
                 </span>
                 {(tableState?.pots ?? []).length > 1 && (
                   <span className="text-gray-300 text-xs ml-2">
-                    ({(tableState?.pots ?? []).length} pots)
+                    ({(tableState?.pots ?? []).length})
                   </span>
                 )}
               </div>
@@ -176,7 +257,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
 
             {/* Phase label */}
             {tableState?.phase && tableState.phase !== 'waiting' && (
-              <span className="text-gray-300 text-xs uppercase tracking-widest opacity-70">
+              <span className="text-gray-300 text-[10px] sm:text-xs uppercase tracking-widest opacity-70">
                 {tableState.phase}
               </span>
             )}
@@ -239,8 +320,8 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
 
       {/* Buy-in dialog */}
       {pendingSeatIndex !== null && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-80">
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 sm:p-6 w-full max-w-sm">
             <h3 className="text-white font-bold mb-4">Sit at Seat {pendingSeatIndex}</h3>
             <div className="mb-4">
               <label className="text-gray-400 text-sm mb-1 block">Buy-in (cents)</label>
@@ -289,6 +370,21 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
             </button>
           </div>
         </div>
+      )}
+
+      {/* Winner overlay — shown for ~5s after hand:complete */}
+      {winnerData && (
+        <WinnerOverlay
+          winners={winnerData.winners}
+          isFoldWin={winnerData.isFoldWin}
+          durationMs={5000}
+          onDismiss={dismissWinner}
+        />
+      )}
+
+      {/* New hand banner — briefly shown when hand:started fires */}
+      {newHandKey > 0 && (
+        <NewHandBanner key={newHandKey} dealerName={newHandDealerName} />
       )}
     </div>
   );

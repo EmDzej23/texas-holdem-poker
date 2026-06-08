@@ -386,12 +386,12 @@ export class TableRoom {
           ts: new Date().toISOString(),
         });
 
-        // Start next hand after a short delay; stand pending players and remove 0-chip players first
+        // Start next hand after delay — gives clients time to display winner overlay
         setTimeout(() => {
           this.processPendingStands();
           this.removeZeroChipPlayers();
           this.maybeStartHand();
-        }, 3000);
+        }, 5500);
       }
     }
   }
