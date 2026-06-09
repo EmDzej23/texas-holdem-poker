@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     tableId?: string;
   };
 
-  const wsUrl = process.env["NEXT_PUBLIC_WS_URL"] ?? "http://localhost:8080";
+  const wsUrl = process.env["WS_SERVICE_URL"] ?? "http://localhost:8080";
   const secret = process.env["WS_ADMIN_SECRET"] ?? "";
 
   const upstream = await fetch(`${wsUrl}/admin/reset-table`, {

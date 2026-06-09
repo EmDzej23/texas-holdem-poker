@@ -21,73 +21,176 @@ import { v4 as uuid } from 'uuid';
 import { TableRoom } from './tableRoom.js';
 import { createMemoryTableStore } from './store/memory.js';
 import type { TableConfig } from '@poker/engine';
+import { LedgerService } from '@poker/engine';
 import type { ClientMessage } from '@poker/shared';
 import { isClientMessage } from '@poker/shared';
+import { createDb, createPgLedgerStore, createPgTableStore, createHandRepository } from '@poker/db';
 
 const PORT = Number(process.env['WS_PORT'] ?? 8080);
 const ADMIN_SECRET = process.env['WS_ADMIN_SECRET'] ?? '';
 
-const store = createMemoryTableStore();
+// DB-backed persistence (optional — degrades gracefully if DATABASE_URL is missing)
+const DATABASE_URL = process.env['DATABASE_URL'] ?? '';
+const db = DATABASE_URL ? createDb(DATABASE_URL) : undefined;
+const ledger = db ? new LedgerService(createPgLedgerStore(db)) : undefined;
+const handRepo = db ? createHandRepository(db) : undefined;
+if (!db) console.warn('[ws-service] DATABASE_URL not set — hand results and ledger will not be persisted');
+
+const tableStore = db ? createPgTableStore(db) : createMemoryTableStore();
 const rooms = new Map<string, TableRoom>();
 
-// Bootstrap a default table for development
-const defaultConfig: TableConfig = {
-  tableId: 'table-1',
-  smallBlindCents: 50,
-  bigBlindCents: 100,
-  minBuyInCents: 4000,
-  maxBuyInCents: 20000,
-  maxSeats: 6,
-  rakePercent: 5,
-  rakeCapCents: 300,
-  turnTimeoutMs: 30_000,
-};
+function makeRoom(config: TableConfig): TableRoom {
+  return new TableRoom(config, tableStore, { ledger, handRepo });
+}
 
-const defaultRoom = new TableRoom(defaultConfig, store);
-rooms.set(defaultConfig.tableId, defaultRoom);
+// Bootstrap tables: load from DB or create a default
+const existingTables = await tableStore.listTables();
+if (existingTables.length > 0) {
+  for (const record of existingTables) {
+    const config = JSON.parse(record.config) as TableConfig;
+    rooms.set(config.tableId, makeRoom(config));
+    console.log(`[ws-service] loaded table ${config.tableId} from store`);
+  }
+} else {
+  const defaultConfig: TableConfig = {
+    tableId: 'table-1',
+    smallBlindCents: 50,
+    bigBlindCents: 100,
+    minBuyInCents: 4000,
+    maxBuyInCents: 20000,
+    maxSeats: 6,
+    rakePercent: 0,
+    rakeCapCents: 0,
+    turnTimeoutMs: 30_000,
+  };
+  const room = makeRoom(defaultConfig);
+  rooms.set(defaultConfig.tableId, room);
+  await tableStore.setTable({
+    tableId: defaultConfig.tableId,
+    seats: '[]',
+    shuffleIndex: 0,
+    config: JSON.stringify(defaultConfig),
+    createdAt: Date.now(),
+    lastActivityAt: Date.now(),
+  });
+  console.log('[ws-service] created default table-1');
+}
 
-await store.setTable({
-  tableId: defaultConfig.tableId,
-  seats: '[]',
-  shuffleIndex: 0,
-  config: JSON.stringify(defaultConfig),
-  createdAt: Date.now(),
-  lastActivityAt: Date.now(),
-});
+// ---------------------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------------------
 
-// HTTP server — shared with WebSocket server, also handles admin REST endpoints
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => resolve(body));
+  });
+}
+
+function requireAdminSecret(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  if (!ADMIN_SECRET || req.headers['x-admin-secret'] !== ADMIN_SECRET) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized' }));
+    return false;
+  }
+  return true;
+}
+
+function json(res: http.ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+// ---------------------------------------------------------------------------
+// HTTP server — shared with WebSocket, handles admin REST endpoints
+// ---------------------------------------------------------------------------
+
 const httpServer = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'content-type, x-admin-secret');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
+  void handleRequest(req, res);
+});
+
+async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const url = req.url ?? '';
+
+  if (req.method === 'GET' && url === '/health') {
+    json(res, 200, { ok: true });
     return;
   }
 
-  if (req.method === 'POST' && req.url?.startsWith('/admin/reset-table')) {
-    if (!ADMIN_SECRET || req.headers['x-admin-secret'] !== ADMIN_SECRET) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
+  // GET /admin/tables — list all rooms with live player count
+  if (req.method === 'GET' && url === '/admin/tables') {
+    if (!requireAdminSecret(req, res)) return;
+    const result = [...rooms.entries()].map(([, room]) => ({
+      tableId: room.config.tableId,
+      config: room.config,
+      playerCount: room.getPlayerCount(),
+    }));
+    json(res, 200, result);
+    return;
+  }
+
+  // POST /admin/create-table
+  if (req.method === 'POST' && url === '/admin/create-table') {
+    if (!requireAdminSecret(req, res)) return;
+    const body = await readBody(req);
+    let config: TableConfig;
+    try {
+      config = JSON.parse(body) as TableConfig;
+      if (!config.tableId) throw new Error('tableId required');
+    } catch (e) {
+      json(res, 400, { error: String(e) });
       return;
     }
-    let body = '';
-    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-    req.on('end', () => {
-      const { tableId } = (body ? JSON.parse(body) : {}) as { tableId?: string };
-      const room = rooms.get(tableId ?? 'table-1');
-      if (room) room.clearAllSeats();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, tableId: tableId ?? 'table-1' }));
+    if (rooms.has(config.tableId)) {
+      json(res, 409, { error: `Table ${config.tableId} already exists` });
+      return;
+    }
+    const room = makeRoom(config);
+    rooms.set(config.tableId, room);
+    await tableStore.setTable({
+      tableId: config.tableId,
+      seats: '[]',
+      shuffleIndex: 0,
+      config: JSON.stringify(config),
+      createdAt: Date.now(),
+      lastActivityAt: Date.now(),
     });
+    json(res, 201, { ok: true, tableId: config.tableId });
+    return;
+  }
+
+  // PATCH /admin/update-table — update rake (and optionally other settings)
+  if (req.method === 'PATCH' && url === '/admin/update-table') {
+    if (!requireAdminSecret(req, res)) return;
+    const body = await readBody(req);
+    const { tableId, rakePercent, rakeCapCents } =
+      JSON.parse(body) as { tableId: string; rakePercent?: number; rakeCapCents?: number };
+    const room = rooms.get(tableId);
+    if (!room) { json(res, 404, { error: 'Table not found' }); return; }
+    room.updateConfig({ rakePercent, rakeCapCents });
+    json(res, 200, { ok: true, tableId, rakePercent: room.config.rakePercent });
+    return;
+  }
+
+  // POST /admin/reset-table
+  if (req.method === 'POST' && url?.startsWith('/admin/reset-table')) {
+    if (!requireAdminSecret(req, res)) return;
+    const body = await readBody(req);
+    const { tableId } = (body ? JSON.parse(body) : {}) as { tableId?: string };
+    const room = rooms.get(tableId ?? 'table-1');
+    if (room) room.clearAllSeats();
+    json(res, 200, { ok: true, tableId: tableId ?? 'table-1' });
     return;
   }
 
   res.writeHead(404);
   res.end();
-});
+}
 
 const wss = new WebSocketServer({ server: httpServer });
 httpServer.listen(PORT, () => {
@@ -121,8 +224,6 @@ wss.on('connection', (ws: WebSocket, req) => {
 
     switch (msg.type) {
       case 'auth': {
-        // TODO (production): verify JWT, extract playerId and displayName from claims.
-        // For now, use a simple token=playerId scheme for dev.
         playerId = msg.payload.token;
         displayName = (msg.payload as { token?: string; displayName?: string }).displayName
           ?? playerId
@@ -151,7 +252,7 @@ wss.on('connection', (ws: WebSocket, req) => {
         if (!playerId || !currentRoom) return;
         currentRoom.sitPlayer(
           connectionId,
-          playerId,             // pass server-verified identity
+          playerId,
           msg.payload.seatIndex,
           msg.payload.buyInCents,
           msg.payload.clientSeed,
@@ -179,18 +280,12 @@ wss.on('connection', (ws: WebSocket, req) => {
 
       case 'intent:bet':
         if (playerId && currentRoom)
-          currentRoom.applyPlayerAction(playerId, {
-            type: 'bet',
-            amountCents: msg.payload.amountCents,
-          });
+          currentRoom.applyPlayerAction(playerId, { type: 'bet', amountCents: msg.payload.amountCents });
         break;
 
       case 'intent:raise':
         if (playerId && currentRoom)
-          currentRoom.applyPlayerAction(playerId, {
-            type: 'raise',
-            amountCents: msg.payload.amountCents,
-          });
+          currentRoom.applyPlayerAction(playerId, { type: 'raise', amountCents: msg.payload.amountCents });
         break;
 
       case 'intent:allIn':
@@ -198,7 +293,6 @@ wss.on('connection', (ws: WebSocket, req) => {
         break;
 
       case 'admin:reset': {
-        // Dev-only: clear all seats on the current room
         if (process.env['NODE_ENV'] !== 'production' && currentRoom) {
           currentRoom.clearAllSeats();
         }
@@ -206,15 +300,11 @@ wss.on('connection', (ws: WebSocket, req) => {
       }
 
       default:
-        // Unknown message type — ignore silently
         break;
     }
   });
 
-  ws.on('close', () => {
-    currentRoom?.removeClient(connectionId);
-  });
-
+  ws.on('close', () => { currentRoom?.removeClient(connectionId); });
   ws.on('error', (err) => {
     console.error(`[ws-service] connection ${connectionId} error:`, err.message);
     currentRoom?.removeClient(connectionId);

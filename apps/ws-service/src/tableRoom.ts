@@ -20,6 +20,7 @@ import {
   deal,
   applyAction,
   applyTimeout,
+  LedgerService,
   type HandState,
   type SeatInfo,
   type TableConfig,
@@ -33,6 +34,7 @@ import type {
   ServerMessage,
   TableStatePayload,
 } from '@poker/shared';
+import type { HandRepository } from '@poker/db';
 
 interface ConnectedClient {
   ws: WebSocket;
@@ -51,11 +53,17 @@ export class TableRoom {
   private turnTimer?: ReturnType<typeof setTimeout> | undefined;
   private seq = 0;
   private pendingStand = new Set<string>(); // playerIds who requested leave mid-hand
+  private handEventBuffer: GameEvent[] = []; // accumulates events for the current hand
+  private readonly ledger: LedgerService | undefined;
+  private readonly handRepo: HandRepository | undefined;
 
   constructor(
-    public readonly config: TableConfig,
+    public config: TableConfig,
     private readonly store: TableStore,
+    persist?: { ledger?: LedgerService | undefined; handRepo?: HandRepository | undefined },
   ) {
+    this.ledger = persist?.ledger;
+    this.handRepo = persist?.handRepo;
     // Initialise empty seats
     for (let i = 0; i < config.maxSeats; i++) {
       this.tableSeats.push({
@@ -195,8 +203,17 @@ export class TableRoom {
       return;
     }
 
-    // TODO (production): verify player has sufficient ledger balance and
-    // record a buy-in ledger transaction before crediting the stack.
+    // Record buy-in: player_wallet → player_table_stack
+    // No balance enforcement in dev — chips are issued on demand.
+    if (this.ledger && buyInCents > 0) {
+      void this.ledger.record({
+        idempotencyKey: `buyin:${uuid()}`,
+        description: `Buy-in: ${client.displayName} at ${this.config.tableId}`,
+        debit: { type: 'player_wallet', ownerId: verifiedPlayerId },
+        credit: { type: 'player_table_stack', ownerId: `${verifiedPlayerId}:${this.config.tableId}` },
+        amountCents: buyInCents,
+      }).catch((err: unknown) => console.error('[TableRoom] buy-in ledger error:', err));
+    }
 
     seat.playerId = verifiedPlayerId;
     seat.displayName = client.displayName;
@@ -240,7 +257,6 @@ export class TableRoom {
       }
     }
 
-    // TODO (production): record cash-out ledger transaction for seat.stackCents
     this.completeSeatStand(connectionId);
   }
 
@@ -251,6 +267,19 @@ export class TableRoom {
 
     const seat = this.tableSeats.find((s) => s.seatIndex === client.seatIndex);
     if (!seat) return;
+
+    // Record cashout: player_table_stack → player_wallet (return remaining chips)
+    if (this.ledger && seat.stackCents > 0) {
+      const playerId = seat.playerId;
+      const amount = seat.stackCents;
+      void this.ledger.record({
+        idempotencyKey: `cashout:${uuid()}`,
+        description: `Cash-out: ${seat.displayName} from ${this.config.tableId}`,
+        debit: { type: 'player_table_stack', ownerId: `${playerId}:${this.config.tableId}` },
+        credit: { type: 'player_wallet', ownerId: playerId },
+        amountCents: amount,
+      }).catch((err: unknown) => console.error('[TableRoom] cash-out ledger error:', err));
+    }
 
     seat.playerId = '';
     seat.displayName = '';
@@ -354,6 +383,12 @@ export class TableRoom {
   // ---------------------------------------------------------------------------
 
   private processEvents(events: GameEvent[]): void {
+    // Buffer all events for the current hand so we can persist on hand:complete
+    for (const event of events) {
+      if (event.type === 'hand:started') this.handEventBuffer = [];
+      this.handEventBuffer.push(event);
+    }
+
     // Count phase:changed events — more than 1 means an all-in runout (cards dealt without action)
     const phaseChangedCount = events.filter((e) => e.type === 'phase:changed').length;
 
@@ -424,6 +459,15 @@ export class TableRoom {
         },
         ts: new Date().toISOString(),
       });
+
+      // Persist hand results and actions to DB
+      if (this.handRepo) {
+        const state = this.handState;
+        const events = [...this.handEventBuffer];
+        const tableId = this.config.tableId;
+        void this.handRepo.recordCompletedHand(state, events, tableId)
+          .catch((err: unknown) => console.error('[TableRoom] hand persist error:', err));
+      }
 
       // Start next hand after delay — gives clients time to display winner overlay
       setTimeout(() => {
@@ -533,12 +577,36 @@ export class TableRoom {
     }
   }
 
+  getPlayerCount(): number {
+    return this.tableSeats.filter((s) => s.status !== 'empty').length;
+  }
+
+  /** Update rake settings (takes effect on the next hand). */
+  updateConfig(patch: { rakePercent?: number | undefined; rakeCapCents?: number | undefined }): void {
+    if (patch.rakePercent !== undefined) this.config.rakePercent = patch.rakePercent;
+    if (patch.rakeCapCents !== undefined) this.config.rakeCapCents = patch.rakeCapCents;
+    void this.saveState();
+  }
+
   /** Remove all players from all seats and cancel any active hand. */
   clearAllSeats(): void {
     this.clearTurnTimer();
     this.handState = undefined;
+    this.handEventBuffer = [];
     this.pendingStand.clear();
     for (const seat of this.tableSeats) {
+      // Return any remaining chips to wallet before clearing
+      if (this.ledger && seat.stackCents > 0 && seat.playerId) {
+        const playerId = seat.playerId;
+        const amount = seat.stackCents;
+        void this.ledger.record({
+          idempotencyKey: `cashout:${uuid()}`,
+          description: `Admin reset cash-out: ${seat.displayName} from ${this.config.tableId}`,
+          debit: { type: 'player_table_stack', ownerId: `${playerId}:${this.config.tableId}` },
+          credit: { type: 'player_wallet', ownerId: playerId },
+          amountCents: amount,
+        }).catch((err: unknown) => console.error('[TableRoom] admin reset cash-out error:', err));
+      }
       seat.playerId = '';
       seat.displayName = '';
       seat.stackCents = 0;

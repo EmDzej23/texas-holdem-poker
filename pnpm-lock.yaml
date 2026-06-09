@@ -78,6 +78,9 @@ importers:
 
   apps/ws-service:
     dependencies:
+      '@poker/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@poker/engine':
         specifier: workspace:*
         version: link:../../packages/engine

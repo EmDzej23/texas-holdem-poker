@@ -16,7 +16,7 @@ import { eq } from 'drizzle-orm';
 
 export interface HandRepository {
   /** Record a fully completed hand (engine phase = 'complete'). Idempotent on handId. */
-  recordCompletedHand(state: HandState, events: GameEvent[]): Promise<void>;
+  recordCompletedHand(state: HandState, events: GameEvent[], tableId: string): Promise<void>;
   getHandById(handId: string): Promise<typeof hands.$inferSelect | undefined>;
   getHandActions(handId: string): Promise<typeof handActions.$inferSelect[]>;
   getHandResults(handId: string): Promise<typeof handResults.$inferSelect[]>;
@@ -25,7 +25,7 @@ export interface HandRepository {
 
 export function createHandRepository(db: Db): HandRepository {
   return {
-    async recordCompletedHand(state: HandState, events: GameEvent[]): Promise<void> {
+    async recordCompletedHand(state: HandState, events: GameEvent[], tableId: string): Promise<void> {
       // Already recorded? PK conflict will abort — safe to re-throw or swallow.
       const existingRows = await db
         .select({ id: hands.id })
@@ -58,12 +58,24 @@ export function createHandRepository(db: Db): HandRepository {
 
       const resultMap = new Map<string, ResultAccum>();
 
+      // Compute per-player contributions from action history (totalHandContributionCents
+      // is reset to 0 in finishHand before this method is called).
+      const contributionByPlayer = new Map<string, number>();
+      for (const action of state.actionHistory) {
+        if (action.amountCents > 0) {
+          contributionByPlayer.set(
+            action.playerId,
+            (contributionByPlayer.get(action.playerId) ?? 0) + action.amountCents,
+          );
+        }
+      }
+
       for (const seat of state.seats) {
         if (!seat.playerId) continue;
         resultMap.set(seat.playerId, {
           playerId: seat.playerId,
           seatIndex: seat.seatIndex,
-          contributedMinor: seat.totalHandContributionCents,
+          contributedMinor: contributionByPlayer.get(seat.playerId) ?? 0,
           wonMinor: 0,
         });
       }
@@ -111,7 +123,7 @@ export function createHandRepository(db: Db): HandRepository {
       await db.transaction(async (tx) => {
         await tx.insert(hands).values({
           id: state.handId,
-          tableId: state.commitment.clientSeed.split(':')[0] ?? 'unknown',
+          tableId,
           dealerSeat: state.dealerSeatIndex,
           sbSeat: state.smallBlindSeatIndex,
           bbSeat: state.bigBlindSeatIndex,

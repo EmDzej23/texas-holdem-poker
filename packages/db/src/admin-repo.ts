@@ -154,7 +154,7 @@ export function createAdminRepository(db: Db): AdminRepository {
 
       // Lifetime rake contributed (chips player put into pots that became rake)
       // Proxy: SUM of rake_minor on hands where player participated
-      db.select({ total: sql<string>`COALESCE(SUM(h.rake_minor * 1.0 / NULLIF(cnt.players, 0)), 0)` })
+      db.select({ total: sql<string>`COALESCE(SUM(${hands.rakeMinor} * 1.0 / NULLIF(cnt.players, 0)), 0)` })
         .from(hands)
         .innerJoin(
           db.select({

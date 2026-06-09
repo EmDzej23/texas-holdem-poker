@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "build": "(cd ../.. && pnpm --filter @poker/engine build && pnpm --filter @poker/shared build) && tsc -p tsconfig.json",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx --env-file=.env watch src/server.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "@poker/db": "workspace:*",
     "@poker/engine": "workspace:*",
     "@poker/shared": "workspace:*",
     "ws": "^8.18.0",
