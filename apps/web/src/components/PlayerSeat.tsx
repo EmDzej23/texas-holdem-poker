@@ -2,7 +2,6 @@
 
 import type { PublicSeatView } from '@poker/shared';
 import { Card } from './Card';
-import { formatCents } from '@/lib/format';
 
 interface PlayerSeatProps {
   seat: PublicSeatView;
@@ -17,6 +16,7 @@ interface PlayerSeatProps {
   sessionLoading: boolean;
   isLoggedIn: boolean;
   revealedCards?: [string, string] | undefined;
+  fmt: (cents: number) => string;
 }
 
 export function PlayerSeat({
@@ -32,6 +32,7 @@ export function PlayerSeat({
   sessionLoading,
   isLoggedIn,
   revealedCards,
+  fmt,
 }: PlayerSeatProps) {
   const isMe = seat.playerId === myPlayerId;
   const isEmpty = seat.status === 'empty';
@@ -88,11 +89,11 @@ export function PlayerSeat({
               {seat.displayName}
             </span>
             <span key={seat.stackCents} className="text-green-400 text-[9px] sm:text-[10px] md:text-xs font-bold animate-stack-flash">
-              {formatCents(seat.stackCents)}
+              {fmt(seat.stackCents)}
             </span>
             {seat.currentStreetBetCents > 0 && (
               <span key={seat.currentStreetBetCents} className="text-yellow-300 text-[8px] sm:text-[9px] md:text-[10px] animate-chip">
-                {formatCents(seat.currentStreetBetCents)}
+                {fmt(seat.currentStreetBetCents)}
               </span>
             )}
 

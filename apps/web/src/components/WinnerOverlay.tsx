@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from 'react';
 import { Card } from './Card';
-import { formatCents } from '@/lib/format';
 
 export interface WinnerDisplayInfo {
   displayName: string;
@@ -18,9 +17,10 @@ interface WinnerOverlayProps {
   isFoldWin: boolean;
   durationMs: number;
   onDismiss: () => void;
+  fmt: (cents: number) => string;
 }
 
-export function WinnerOverlay({ winners, isFoldWin, durationMs, onDismiss }: WinnerOverlayProps) {
+export function WinnerOverlay({ winners, isFoldWin, durationMs, onDismiss, fmt }: WinnerOverlayProps) {
   const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,8 +56,8 @@ export function WinnerOverlay({ winners, isFoldWin, durationMs, onDismiss }: Win
           </div>
           <div className="text-green-400 font-bold text-xl sm:text-2xl mt-1">
             {winners.length === 1
-              ? `+${formatCents(winners[0]!.amountCents)}`
-              : winners.map((w) => `+${formatCents(w.amountCents)}`).join(' / ')}
+              ? `+${fmt(winners[0]!.amountCents)}`
+              : winners.map((w) => `+${fmt(w.amountCents)}`).join(' / ')}
           </div>
         </div>
 

@@ -139,7 +139,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
   const totalPot = (tableState?.pots ?? []).reduce((s, p) => s + p.amountCents, 0);
   const config = tableState?.config;
   const sym = config?.currencySymbol ?? '$';
-  const fmt = (c: number): string => formatCents(c, sym);
+  const fmt = (c: number): string => formatCents(c, '');
 
   function handleSitClick(seatIndex: number) {
     if (!playerId) {
@@ -180,6 +180,11 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
           {config && (
             <span className="text-gray-500 text-xs sm:hidden">
               {fmt(config.smallBlindCents)}/{fmt(config.bigBlindCents)}
+            </span>
+          )}
+          {config && (
+            <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-300 font-mono border border-gray-700">
+              {sym}
             </span>
           )}
         </div>
@@ -294,6 +299,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
                 sessionLoading={sessionLoading}
                 isLoggedIn={playerId !== null}
                 revealedCards={revealedCards}
+                fmt={fmt}
               />
             );
           })}
@@ -315,6 +321,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
           onBet={bet}
           onRaise={raise}
           onAllIn={allIn}
+          fmt={fmt}
         />
       )}
 
@@ -418,6 +425,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
           isFoldWin={winnerData.isFoldWin}
           durationMs={5000}
           onDismiss={dismissWinner}
+          fmt={fmt}
         />
       )}
 

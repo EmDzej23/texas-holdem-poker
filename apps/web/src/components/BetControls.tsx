@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import type { ValidAction } from '@poker/engine';
-import { formatCents } from '@/lib/format';
 
 interface BetControlsProps {
   validActions: ValidAction[];
@@ -17,6 +16,7 @@ interface BetControlsProps {
   onBet: (amountCents: number) => void;
   onRaise: (amountCents: number) => void;
   onAllIn: () => void;
+  fmt: (cents: number) => string;
 }
 
 export function BetControls({
@@ -32,6 +32,7 @@ export function BetControls({
   onBet,
   onRaise,
   onAllIn,
+  fmt,
 }: BetControlsProps) {
   const betAction = validActions.find((a) => a.type === 'bet');
   const raiseAction = validActions.find((a) => a.type === 'raise');
@@ -69,9 +70,9 @@ export function BetControls({
         {betOrRaise && (
           <div className="mb-2 sm:mb-3">
             <div className="flex justify-between text-gray-400 text-xs mb-1">
-              <span>{formatCents(minBet)}</span>
-              <span className="text-white font-bold">{formatCents(effectiveSlider)}</span>
-              <span>{formatCents(maxBet)}</span>
+              <span>{fmt(minBet)}</span>
+              <span className="text-white font-bold">{fmt(effectiveSlider)}</span>
+              <span>{fmt(maxBet)}</span>
             </div>
             <input
               type="range"
@@ -133,7 +134,7 @@ export function BetControls({
               onClick={onCall}
               className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-400 text-white font-bold text-xs sm:text-sm transition-colors"
             >
-              Call {formatCents(callAmount)}
+              Call {fmt(callAmount)}
             </button>
           )}
           {betOrRaise && (
@@ -141,7 +142,7 @@ export function BetControls({
               onClick={handleBetOrRaise}
               className="flex-1 py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 active:bg-yellow-300 text-black font-bold text-xs sm:text-sm transition-colors"
             >
-              {betAction ? 'Bet' : 'Raise'} {formatCents(effectiveSlider)}
+              {betAction ? 'Bet' : 'Raise'} {fmt(effectiveSlider)}
             </button>
           )}
           {canAllIn && (
@@ -149,7 +150,7 @@ export function BetControls({
               onClick={onAllIn}
               className="flex-1 py-3 rounded-xl bg-orange-600 hover:bg-orange-500 active:bg-orange-400 text-white font-bold text-xs sm:text-sm transition-colors"
             >
-              All-In {formatCents(stackCents)}
+              All-In {fmt(stackCents)}
             </button>
           )}
         </div>
