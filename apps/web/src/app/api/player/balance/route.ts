@@ -1,24 +1,9 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { auth } from '@/lib/auth';
-import { getDb } from '@poker/db';
-import { ledgerEntries } from '@poker/db';
-import { eq, and, sql } from 'drizzle-orm';
+import { getDb, getWalletBalancesByCurrency } from '@poker/db';
 
-async function getWalletBalance(playerId: string): Promise<number> {
-  const db = getDb();
-  const [credits, debits] = await Promise.all([
-    db
-      .select({ total: sql<string>`COALESCE(SUM(${ledgerEntries.amountMinor}), 0)` })
-      .from(ledgerEntries)
-      .where(and(eq(ledgerEntries.creditOwner, playerId), eq(ledgerEntries.creditType, 'player_wallet'))),
-    db
-      .select({ total: sql<string>`COALESCE(SUM(${ledgerEntries.amountMinor}), 0)` })
-      .from(ledgerEntries)
-      .where(and(eq(ledgerEntries.debitOwner, playerId), eq(ledgerEntries.debitType, 'player_wallet'))),
-  ]);
-  return Number(credits[0]?.total ?? 0) - Number(debits[0]?.total ?? 0);
-}
+export { getWalletBalancesByCurrency };
 
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -26,6 +11,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const balance = await getWalletBalance(session.user.id);
-  return NextResponse.json({ walletBalanceCents: balance });
+  const balances = await getWalletBalancesByCurrency(getDb(), session.user.id);
+  // Legacy field kept for backward compat (used when table currency is unknown)
+  const walletBalanceCents = balances.reduce((s, b) => s + b.balanceCents, 0);
+  return NextResponse.json({ walletBalanceCents, balances });
 }

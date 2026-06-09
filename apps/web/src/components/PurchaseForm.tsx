@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+const CURRENCIES = ['$', '€', '£', 'din', '₽', '₸', '₿'];
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000]; // cents
 
-export function PurchaseForm() {
+export function PurchaseForm({ defaultCurrency = '$' }: { defaultCurrency?: string }) {
   const router = useRouter();
+  const [currency, setCurrency] = useState(defaultCurrency);
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -22,16 +24,14 @@ export function PurchaseForm() {
     const res = await fetch('/api/player/deposit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amountCents }),
+      body: JSON.stringify({ amountCents, currencySymbol: currency }),
     });
     setLoading(false);
     if (res.ok) {
-      const data = await res.json() as { walletBalanceCents: number };
       setAdded(amountCents);
       setAmount('');
       router.refresh();
       setTimeout(() => setAdded(null), 3000);
-      void data;
     } else {
       const data = await res.json() as { error?: string };
       setError(data.error ?? 'Failed to add funds');
@@ -40,7 +40,28 @@ export function PurchaseForm() {
 
   return (
     <div className="space-y-3">
-      {/* Quick-pick buttons */}
+      {/* Currency selector */}
+      <div>
+        <label className="text-xs text-gray-400 block mb-1.5">Currency</label>
+        <div className="flex flex-wrap gap-1.5">
+          {CURRENCIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCurrency(c)}
+              className={`px-2.5 py-1 rounded-lg text-sm font-bold border transition-colors ${
+                currency === c
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-gray-400'
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick-pick amounts */}
       <div className="flex flex-wrap gap-2">
         {QUICK_AMOUNTS.map((a) => (
           <button
@@ -50,7 +71,7 @@ export function PurchaseForm() {
             onClick={() => void submit(a)}
             className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-600 text-sm font-medium disabled:opacity-40"
           >
-            +{(a / 100).toFixed(0)}
+            +{currency}{(a / 100).toFixed(0)}
           </button>
         ))}
       </div>
@@ -64,7 +85,7 @@ export function PurchaseForm() {
         className="flex gap-2"
       >
         <div className="flex items-center gap-1 flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3">
-          <span className="text-gray-400 text-sm">$</span>
+          <span className="text-gray-400 text-sm">{currency}</span>
           <input
             type="number"
             min="1"
@@ -87,7 +108,7 @@ export function PurchaseForm() {
       {error && <p className="text-red-400 text-xs">{error}</p>}
       {added !== null && (
         <p className="text-green-400 text-xs">
-          +${(added / 100).toFixed(2)} added to your balance.
+          +{currency}{(added / 100).toFixed(2)} added to your {currency} balance.
         </p>
       )}
     </div>

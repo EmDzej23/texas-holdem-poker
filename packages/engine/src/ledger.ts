@@ -73,6 +73,7 @@ export interface TransactionInput {
   credit: LedgerAccount;
   amountCents: Cents;
   handId?: string | undefined;
+  currencySymbol?: string | undefined; // defaults to '$' when not set
 }
 
 export interface TransactionResult {
@@ -109,6 +110,7 @@ export class LedgerService {
       debit: input.debit,
       credit: input.credit,
       amountCents: input.amountCents,
+      currencySymbol: input.currencySymbol ?? '$',
     };
 
     await this.store.appendEntry(entry);

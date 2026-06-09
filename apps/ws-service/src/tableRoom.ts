@@ -244,6 +244,7 @@ export class TableRoom {
           debit: { type: 'player_wallet', ownerId: verifiedPlayerId },
           credit: { type: 'player_table_stack', ownerId: `${verifiedPlayerId}:${this.config.tableId}` },
           amountCents: buyInCents,
+          currencySymbol: this.config.currencySymbol ?? '$',
         });
       } catch (err) {
         console.error('[TableRoom] buy-in ledger error:', err);
@@ -322,6 +323,7 @@ export class TableRoom {
         debit: { type: 'player_table_stack', ownerId: `${playerId}:${this.config.tableId}` },
         credit: { type: 'player_wallet', ownerId: playerId },
         amountCents: amount,
+        currencySymbol: this.config.currencySymbol ?? '$',
       }).catch((err: unknown) => console.error('[TableRoom] cash-out ledger error:', err));
     }
 
@@ -666,6 +668,7 @@ export class TableRoom {
           debit: { type: 'player_table_stack', ownerId: `${playerId}:${this.config.tableId}` },
           credit: { type: 'player_wallet', ownerId: playerId },
           amountCents: amount,
+          currencySymbol: this.config.currencySymbol ?? '$',
         }).catch((err: unknown) => console.error('[TableRoom] admin reset cash-out error:', err));
       }
       this.seatSessionKeys.delete(seat.seatIndex);

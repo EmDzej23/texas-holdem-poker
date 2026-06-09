@@ -206,6 +206,7 @@ export interface LedgerEntry {
   debit: LedgerAccount;
   credit: LedgerAccount;
   amountCents: Cents;
+  currencySymbol: string; // table currency at the time of transaction
 }
 
 export interface LedgerQueryResult {

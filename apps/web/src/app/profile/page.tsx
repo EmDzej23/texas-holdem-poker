@@ -2,14 +2,13 @@ export const dynamic = 'force-dynamic';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
-import { getDb, createPgLedgerStore, createSettlementRepository } from '@poker/db';
-import { LedgerService } from '@poker/engine';
-import { eq } from 'drizzle-orm';
-import { handResults, sessions } from '@poker/db';
-import { formatMoney, formatTokens } from '@/lib/format';
+import { getDb, createSettlementRepository, getWalletBalancesByCurrency, ledgerEntries } from '@poker/db';
+import { eq, and, sql } from 'drizzle-orm';
+import { handResults } from '@poker/db';
 import Link from 'next/link';
 import { PurchaseForm } from '@/components/PurchaseForm';
 import { CashoutForm } from '@/components/CashoutForm';
+import type { CurrencyBalance } from '@poker/db';
 
 export default async function ProfilePage() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -17,30 +16,72 @@ export default async function ProfilePage() {
 
   const playerId = session.user.id;
   const db = getDb();
-  const ledger = new LedgerService(createPgLedgerStore(db));
   const settlement = createSettlementRepository(db);
 
   const [
-    walletBalance,
-    heldBalance,
-    purchases,
+    walletBalances,
+    heldBalances,
     cashouts,
     handResultRows,
-    sessionRows,
+    depositedByCurrency,
   ] = await Promise.all([
-    ledger.getBalance({ type: 'player_wallet', ownerId: playerId }),
-    ledger.getBalance({ type: 'player_cashout_hold', ownerId: playerId }),
-    settlement.getPurchasesForPlayer(playerId),
+    getWalletBalancesByCurrency(db, playerId),
+
+    // Held in cashout escrow — per currency
+    (async (): Promise<CurrencyBalance[]> => {
+      const [credits, debits] = await Promise.all([
+        db.select({
+          currencySymbol: ledgerEntries.currencySymbol,
+          total: sql<string>`COALESCE(SUM(${ledgerEntries.amountMinor}), 0)`,
+        })
+          .from(ledgerEntries)
+          .where(and(eq(ledgerEntries.creditOwner, playerId), eq(ledgerEntries.creditType, 'player_cashout_hold')))
+          .groupBy(ledgerEntries.currencySymbol),
+        db.select({
+          currencySymbol: ledgerEntries.currencySymbol,
+          total: sql<string>`COALESCE(SUM(${ledgerEntries.amountMinor}), 0)`,
+        })
+          .from(ledgerEntries)
+          .where(and(eq(ledgerEntries.debitOwner, playerId), eq(ledgerEntries.debitType, 'player_cashout_hold')))
+          .groupBy(ledgerEntries.currencySymbol),
+      ]);
+      const map = new Map<string, number>();
+      for (const r of credits) map.set(r.currencySymbol, (map.get(r.currencySymbol) ?? 0) + Number(r.total));
+      for (const r of debits) map.set(r.currencySymbol, (map.get(r.currencySymbol) ?? 0) - Number(r.total));
+      return [...map.entries()]
+        .map(([currencySymbol, balanceCents]) => ({ currencySymbol, balanceCents }))
+        .filter((b) => b.balanceCents > 0);
+    })(),
+
     settlement.getCashoutsForPlayer(playerId),
     db.select().from(handResults).where(eq(handResults.playerId, playerId)).orderBy(handResults.createdAt),
-    db.select().from(sessions).where(eq(sessions.playerId, playerId)).orderBy(sessions.joinedAt),
+
+    // Total deposited per currency (ledger: debit=house_rake → credit=player_wallet)
+    (async (): Promise<CurrencyBalance[]> => {
+      const rows = await db.select({
+        currencySymbol: ledgerEntries.currencySymbol,
+        total: sql<string>`COALESCE(SUM(${ledgerEntries.amountMinor}), 0)`,
+      })
+        .from(ledgerEntries)
+        .where(and(
+          eq(ledgerEntries.creditOwner, playerId),
+          eq(ledgerEntries.creditType, 'player_wallet'),
+          eq(ledgerEntries.debitType, 'house_rake'),
+        ))
+        .groupBy(ledgerEntries.currencySymbol);
+      return rows.map((r) => ({ currencySymbol: r.currencySymbol, balanceCents: Number(r.total) }));
+    })(),
   ]);
 
-  const totalDeposited = purchases.filter((p) => p.status === 'approved').reduce((s, p) => s + p.realMoneyMinor, 0);
-  const totalCashedOut = cashouts.filter((c) => c.status === 'approved').reduce((s, c) => s + c.realMoneyMinor, 0);
   const pendingCashoutAmount = cashouts.filter((c) => c.status === 'pending').reduce((s, c) => s + c.realMoneyMinor, 0);
   const tableNet = handResultRows.reduce((s, r) => s + r.netMinor, 0);
-  const netResult = (walletBalance + heldBalance + totalCashedOut) - totalDeposited;
+
+  // All currencies touched by this player
+  const allCurrencies = [...new Set([
+    ...walletBalances.map((b) => b.currencySymbol),
+    ...heldBalances.map((b) => b.currencySymbol),
+    ...depositedByCurrency.map((b) => b.currencySymbol),
+  ])].sort();
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -57,25 +98,60 @@ export default async function ProfilePage() {
 
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
 
-        {/* Balance summary */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Wallet" value={formatTokens(walletBalance)} sub={formatMoney(walletBalance)} />
-          <StatCard label="Held (pending cashout)" value={formatTokens(heldBalance)} sub={formatMoney(heldBalance)} warn={heldBalance > 0} />
-          <StatCard label="Total deposited" value={formatMoney(totalDeposited)} sub={`net spent: ${formatMoney(totalDeposited - totalCashedOut)}`} />
-          <StatCard
-            label="Net result"
-            value={formatMoney(Math.abs(netResult))}
-            sub={`table net: ${formatMoney(tableNet)}`}
-            positive={netResult >= 0}
-            negative={netResult < 0}
-          />
-        </div>
+        {/* Per-currency balance summary */}
+        {allCurrencies.length === 0 ? (
+          <div className="bg-gray-900 rounded-xl p-6 text-center text-gray-400 text-sm">
+            No balance yet. Add funds below to get started.
+          </div>
+        ) : (
+          <div className="bg-gray-900 rounded-xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-800">
+              <h2 className="font-semibold text-sm text-gray-300 uppercase tracking-wide">Wallet balances</h2>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 text-xs border-b border-gray-800">
+                  <th className="text-left px-5 py-2 font-medium">Currency</th>
+                  <th className="text-right px-5 py-2 font-medium">Available</th>
+                  <th className="text-right px-5 py-2 font-medium">Held (cashout)</th>
+                  <th className="text-right px-5 py-2 font-medium">Total deposited</th>
+                  <th className="text-right px-5 py-2 font-medium">Net P&amp;L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allCurrencies.map((sym) => {
+                  const avail = walletBalances.find((b) => b.currencySymbol === sym)?.balanceCents ?? 0;
+                  const held = heldBalances.find((b) => b.currencySymbol === sym)?.balanceCents ?? 0;
+                  const deposited = depositedByCurrency.find((b) => b.currencySymbol === sym)?.balanceCents ?? 0;
+                  const net = avail + held - deposited;
+                  return (
+                    <tr key={sym} className="border-b border-gray-800/50 last:border-0">
+                      <td className="px-5 py-3 font-bold text-gray-200">{sym}</td>
+                      <td className="px-5 py-3 text-right font-mono text-green-400">
+                        {sym}{(avail / 100).toFixed(2)}
+                      </td>
+                      <td className="px-5 py-3 text-right font-mono text-yellow-400">
+                        {held > 0 ? `${sym}${(held / 100).toFixed(2)}` : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-right font-mono text-gray-300">
+                        {sym}{(deposited / 100).toFixed(2)}
+                      </td>
+                      <td className={`px-5 py-3 text-right font-mono font-bold ${net >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {net >= 0 ? '+' : ''}{sym}{(net / 100).toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-        {/* Pending cashout */}
+        {/* Pending cashout notice */}
         {pendingCashoutAmount > 0 && (
           <div className="bg-yellow-950/40 border border-yellow-800 rounded-xl p-4">
             <p className="text-yellow-200 text-sm">
-              Cashout awaiting payout: {formatMoney(pendingCashoutAmount)} — tokens held, pending admin settlement.
+              Cashout awaiting payout: {(pendingCashoutAmount / 100).toFixed(2)} — tokens held, pending admin settlement.
             </p>
           </div>
         )}
@@ -85,131 +161,64 @@ export default async function ProfilePage() {
           <div className="bg-gray-900 rounded-xl p-6">
             <h2 className="text-lg font-semibold mb-1">Add funds</h2>
             <p className="text-gray-400 text-sm mb-4">
-              Funds are added instantly and available for buy-in at any table.
+              Select currency and amount. Funds are available instantly for buy-in.
             </p>
             <PurchaseForm />
           </div>
           <div className="bg-gray-900 rounded-xl p-6">
-            <h2 className="text-lg font-semibold mb-4">Cash out</h2>
-            <p className="text-gray-400 text-sm mb-2">
-              Available: {formatTokens(walletBalance)} ({formatMoney(walletBalance)})
-            </p>
-            <p className="text-gray-400 text-sm mb-4">
-              Tokens are held immediately; real money paid after admin approval.
-            </p>
-            <CashoutForm maxTokens={walletBalance} />
+            <h2 className="text-lg font-semibold mb-2">Cash out</h2>
+            {walletBalances.length === 0 ? (
+              <p className="text-gray-500 text-sm">No balance to cash out.</p>
+            ) : (
+              <>
+                <div className="space-y-1 mb-4">
+                  {walletBalances.map((b) => (
+                    <p key={b.currencySymbol} className="text-gray-300 text-sm">
+                      {b.currencySymbol}: <span className="font-mono font-bold">{b.currencySymbol}{(b.balanceCents / 100).toFixed(2)}</span>
+                    </p>
+                  ))}
+                </div>
+                <p className="text-gray-400 text-xs mb-4">
+                  Tokens are held immediately; payment processed after admin approval.
+                </p>
+                <CashoutForm maxTokens={walletBalances.reduce((s, b) => s + b.balanceCents, 0)} />
+              </>
+            )}
           </div>
         </div>
 
-        {/* History tabs */}
-        <div className="space-y-6">
-          <Section title="Token purchases">
-            {purchases.length === 0 ? (
-              <p className="text-gray-500 text-sm">No purchases yet.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-gray-400 border-b border-gray-800">
-                    <th className="text-left py-2">Date</th>
-                    <th className="text-right py-2">Tokens</th>
-                    <th className="text-right py-2">Real money</th>
-                    <th className="text-right py-2">Status</th>
+        {/* Hand history */}
+        <Section title={`Hand history (${handResultRows.length} hands${tableNet !== 0 ? ` · net: ${tableNet >= 0 ? '+' : ''}${(tableNet / 100).toFixed(2)}` : ''})`}>
+          {handResultRows.length === 0 ? (
+            <p className="text-gray-500 text-sm">No hands played yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-800">
+                  <th className="text-left py-2">Date</th>
+                  <th className="text-right py-2">Net</th>
+                  <th className="text-right py-2">Won</th>
+                  <th className="text-right py-2">Contributed</th>
+                  <th className="text-right py-2">Hand</th>
+                </tr>
+              </thead>
+              <tbody>
+                {handResultRows.slice(-50).reverse().map((r) => (
+                  <tr key={r.id} className="border-b border-gray-800/50">
+                    <td className="py-2 text-gray-300">{r.createdAt.toLocaleDateString()}</td>
+                    <td className={`py-2 text-right font-mono ${r.netMinor >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {r.netMinor >= 0 ? '+' : ''}{(r.netMinor / 100).toFixed(2)}
+                    </td>
+                    <td className="py-2 text-right font-mono">{(r.wonMinor / 100).toFixed(2)}</td>
+                    <td className="py-2 text-right font-mono">{(r.contributedMinor / 100).toFixed(2)}</td>
+                    <td className="py-2 text-right text-gray-400">{r.handRank ?? '—'}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {purchases.map((p) => (
-                    <tr key={p.id} className="border-b border-gray-800/50">
-                      <td className="py-2 text-gray-300">{p.createdAt.toLocaleDateString()}</td>
-                      <td className="py-2 text-right">{formatTokens(p.tokenAmount)}</td>
-                      <td className="py-2 text-right">{formatMoney(p.realMoneyMinor)}</td>
-                      <td className="py-2 text-right"><StatusBadge status={p.status} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Section>
-
-          <Section title="Cashouts">
-            {cashouts.length === 0 ? (
-              <p className="text-gray-500 text-sm">No cashouts yet.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-gray-400 border-b border-gray-800">
-                    <th className="text-left py-2">Date</th>
-                    <th className="text-right py-2">Tokens</th>
-                    <th className="text-right py-2">Real money</th>
-                    <th className="text-right py-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cashouts.map((c) => (
-                    <tr key={c.id} className="border-b border-gray-800/50">
-                      <td className="py-2 text-gray-300">{c.createdAt.toLocaleDateString()}</td>
-                      <td className="py-2 text-right">{formatTokens(c.tokenAmount)}</td>
-                      <td className="py-2 text-right">{formatMoney(c.realMoneyMinor)}</td>
-                      <td className="py-2 text-right"><StatusBadge status={c.status} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Section>
-
-          <Section title={`Hand history (${handResultRows.length} hands)`}>
-            {handResultRows.length === 0 ? (
-              <p className="text-gray-500 text-sm">No hands played yet.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-gray-400 border-b border-gray-800">
-                    <th className="text-left py-2">Date</th>
-                    <th className="text-right py-2">Net</th>
-                    <th className="text-right py-2">Won</th>
-                    <th className="text-right py-2">Contributed</th>
-                    <th className="text-right py-2">Hand</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {handResultRows.slice(-50).reverse().map((r) => (
-                    <tr key={r.id} className="border-b border-gray-800/50">
-                      <td className="py-2 text-gray-300">{r.createdAt.toLocaleDateString()}</td>
-                      <td className={`py-2 text-right ${r.netMinor >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {r.netMinor >= 0 ? '+' : ''}{formatMoney(r.netMinor)}
-                      </td>
-                      <td className="py-2 text-right">{formatMoney(r.wonMinor)}</td>
-                      <td className="py-2 text-right">{formatMoney(r.contributedMinor)}</td>
-                      <td className="py-2 text-right text-gray-400">{r.handRank ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Section>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
       </div>
-    </div>
-  );
-}
-
-function StatCard({
-  label, value, sub, warn, positive, negative,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  warn?: boolean;
-  positive?: boolean;
-  negative?: boolean;
-}) {
-  return (
-    <div className={`rounded-xl p-4 ${warn ? 'bg-yellow-950/30 border border-yellow-800' : 'bg-gray-900 border border-gray-800'}`}>
-      <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{label}</p>
-      <p className={`text-xl font-bold ${positive ? 'text-green-400' : negative ? 'text-red-400' : 'text-white'}`}>
-        {value}
-      </p>
-      {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
     </div>
   );
 }
@@ -220,18 +229,5 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="text-lg font-semibold mb-4">{title}</h2>
       {children}
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const color =
-    status === 'approved' ? 'text-green-400 bg-green-950/50' :
-    status === 'rejected' ? 'text-red-400 bg-red-950/50' :
-    status === 'cancelled' ? 'text-gray-400 bg-gray-800' :
-    'text-yellow-400 bg-yellow-950/50';
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${color}`}>
-      {status}
-    </span>
   );
 }

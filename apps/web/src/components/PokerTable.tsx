@@ -151,8 +151,15 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
     setWalletBalanceCents(null);
     fetch('/api/player/balance')
       .then((r) => r.json())
-      .then((d: { walletBalanceCents?: number }) => {
-        if (typeof d.walletBalanceCents === 'number') setWalletBalanceCents(d.walletBalanceCents);
+      .then((d: { balances?: { currencySymbol: string; balanceCents: number }[]; walletBalanceCents?: number }) => {
+        // Show balance only for this table's currency
+        const tableSym = config?.currencySymbol ?? '$';
+        if (d.balances) {
+          const match = d.balances.find((b) => b.currencySymbol === tableSym);
+          setWalletBalanceCents(match?.balanceCents ?? 0);
+        } else if (typeof d.walletBalanceCents === 'number') {
+          setWalletBalanceCents(d.walletBalanceCents);
+        }
       })
       .catch(() => {});
   }

@@ -21,6 +21,8 @@ import { sql, and, eq, gte, lte, desc } from 'drizzle-orm';
 import type { Db } from './client.js';
 import { ledgerEntries } from './schema/ledger.js';
 import { players, tokenPurchases, cashouts, sessions, hands, handResults, adminAuditLog, admins } from './schema/index.js';
+import { getWalletBalancesByCurrency } from './ledger-store.js';
+import type { CurrencyBalance } from './ledger-store.js';
 
 export interface PlayerSummary {
   id: string;
@@ -30,6 +32,8 @@ export interface PlayerSummary {
   amountPaidMinor: number;
   tokensPurchased: number;
   currentBalanceMinor: number;
+  /** Per-currency breakdown of the wallet balance */
+  balancesByCurrency: CurrencyBalance[];
   totalCashedOutMinor: number;
   grossWinningsMinor: number;
   netPnlMinor: number;
@@ -174,7 +178,10 @@ export function createAdminRepository(db: Db): AdminRepository {
         .where(eq(handResults.playerId, player.id)),
     ]);
 
-    const walletBalance = await ledgerBalance(player.id, 'player_wallet');
+    const [walletBalance, balancesByCurrency] = await Promise.all([
+      ledgerBalance(player.id, 'player_wallet'),
+      getWalletBalancesByCurrency(db, player.id),
+    ]);
     const amountPaid = Number(purchaseRow[0]!.amountPaid);
     const totalCashedOut = Number(cashoutRow[0]!.total);
 
@@ -186,6 +193,7 @@ export function createAdminRepository(db: Db): AdminRepository {
       amountPaidMinor: amountPaid,
       tokensPurchased: Number(purchaseRow[0]!.tokensBought),
       currentBalanceMinor: walletBalance,
+      balancesByCurrency,
       totalCashedOutMinor: totalCashedOut,
       grossWinningsMinor: Number(winRow[0]!.total),
       netPnlMinor: (walletBalance + totalCashedOut) - amountPaid,

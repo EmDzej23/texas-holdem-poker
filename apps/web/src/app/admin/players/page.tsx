@@ -34,7 +34,19 @@ export default async function PlayersPage() {
                   <p className="font-medium text-white">{s.username}</p>
                   <p className="text-gray-500 text-xs">{s.email ?? s.id.slice(0, 8)}</p>
                 </td>
-                <td className="px-4 py-3 text-right font-mono">{formatMoney(s.currentBalanceMinor)}</td>
+                <td className="px-4 py-3 text-right">
+                  {s.balancesByCurrency.length === 0 ? (
+                    <span className="font-mono text-gray-500">—</span>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {s.balancesByCurrency.map((b) => (
+                        <div key={b.currencySymbol} className="font-mono text-sm text-white">
+                          {b.currencySymbol}{(b.balanceCents / 100).toFixed(2)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right font-mono">{formatMoney(s.amountPaidMinor)}</td>
                 <td className="px-4 py-3 text-right font-mono">{formatMoney(s.totalCashedOutMinor)}</td>
                 <td className={`px-4 py-3 text-right font-mono ${s.netPnlMinor >= 0 ? 'text-green-400' : 'text-red-400'}`}>

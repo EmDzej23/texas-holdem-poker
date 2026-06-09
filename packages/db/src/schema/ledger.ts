@@ -1,4 +1,4 @@
-import { pgTable, text, bigint, timestamp, uuid, uniqueIndex, index, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, timestamp, uuid, uniqueIndex, index, check, varchar } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 /**
@@ -26,6 +26,7 @@ export const ledgerEntries = pgTable(
     creditOwner: text('credit_owner').notNull(),
     creditType: text('credit_type').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    currencySymbol: varchar('currency_symbol', { length: 10 }).notNull().default('$'),
   },
   (t) => [
     uniqueIndex('ledger_entries_idempotency_key_idx').on(t.idempotencyKey),

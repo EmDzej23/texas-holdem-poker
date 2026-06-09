@@ -1,7 +1,8 @@
 export { createDb, getDb } from './client.js';
 export type { Db } from './client.js';
 
-export { createPgLedgerStore } from './ledger-store.js';
+export { createPgLedgerStore, getWalletBalancesByCurrency } from './ledger-store.js';
+export type { CurrencyBalance } from './ledger-store.js';
 export { createPgTableStore } from './table-store.js';
 
 export { createHandRepository } from './hand-repo.js';

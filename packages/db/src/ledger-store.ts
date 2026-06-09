@@ -16,11 +16,51 @@
  * called from a database-backed context — see hand-repo.ts for the pattern.
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import type { LedgerEntry, LedgerAccount } from '@poker/engine';
 import type { LedgerStore } from '@poker/engine';
 import { ledgerEntries } from './schema/ledger.js';
 import type { Db } from './client.js';
+
+export interface CurrencyBalance {
+  currencySymbol: string;
+  balanceCents: number;
+}
+
+/** Wallet balance per currency for a player. */
+export async function getWalletBalancesByCurrency(db: Db, playerId: string): Promise<CurrencyBalance[]> {
+  const [credits, debits] = await Promise.all([
+    db
+      .select({
+        currencySymbol: ledgerEntries.currencySymbol,
+        total: sql<string>`COALESCE(SUM(${ledgerEntries.amountMinor}), 0)`,
+      })
+      .from(ledgerEntries)
+      .where(and(eq(ledgerEntries.creditOwner, playerId), eq(ledgerEntries.creditType, 'player_wallet')))
+      .groupBy(ledgerEntries.currencySymbol),
+    db
+      .select({
+        currencySymbol: ledgerEntries.currencySymbol,
+        total: sql<string>`COALESCE(SUM(${ledgerEntries.amountMinor}), 0)`,
+      })
+      .from(ledgerEntries)
+      .where(and(eq(ledgerEntries.debitOwner, playerId), eq(ledgerEntries.debitType, 'player_wallet')))
+      .groupBy(ledgerEntries.currencySymbol),
+  ]);
+
+  const map = new Map<string, number>();
+  for (const row of credits) {
+    map.set(row.currencySymbol, (map.get(row.currencySymbol) ?? 0) + Number(row.total));
+  }
+  for (const row of debits) {
+    map.set(row.currencySymbol, (map.get(row.currencySymbol) ?? 0) - Number(row.total));
+  }
+
+  return [...map.entries()]
+    .map(([currencySymbol, balanceCents]) => ({ currencySymbol, balanceCents }))
+    .filter((b) => b.balanceCents !== 0)
+    .sort((a, b) => a.currencySymbol.localeCompare(b.currencySymbol));
+}
 
 function rowToEntry(row: typeof ledgerEntries.$inferSelect): LedgerEntry {
   return {
@@ -32,6 +72,7 @@ function rowToEntry(row: typeof ledgerEntries.$inferSelect): LedgerEntry {
     debit: { type: row.debitType as LedgerAccount['type'], ownerId: row.debitOwner },
     credit: { type: row.creditType as LedgerAccount['type'], ownerId: row.creditOwner },
     amountCents: row.amountMinor,
+    currencySymbol: row.currencySymbol,
   };
 }
 
@@ -51,6 +92,7 @@ export function createPgLedgerStore(db: Db): LedgerStore {
           creditOwner: entry.credit.ownerId,
           creditType: entry.credit.type,
           amountMinor: entry.amountCents,
+          currencySymbol: entry.currencySymbol,
         })
         .onConflictDoNothing({ target: ledgerEntries.idempotencyKey });
       // ON CONFLICT DO NOTHING: if another process won the race on the
