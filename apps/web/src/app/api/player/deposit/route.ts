@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { getDb, createPgLedgerStore, getWalletBalancesByCurrency } from '@poker/db';
-import { LedgerService } from '@poker/engine';
 import { randomUUID } from 'node:crypto';
 
 export async function POST(req: Request) {
@@ -32,10 +31,12 @@ export async function POST(req: Request) {
     }
 
     const db = getDb();
-    const ledger = new LedgerService(createPgLedgerStore(db));
+    const store = createPgLedgerStore(db);
 
-    await ledger.record({
+    await store.appendEntry({
+      id: randomUUID(),
       idempotencyKey: `deposit:${randomUUID()}`,
+      timestamp: Date.now(),
       description: `Deposit: player ${session.user.id}`,
       debit: { type: 'house_rake', ownerId: 'house' },
       credit: { type: 'player_wallet', ownerId: session.user.id },
