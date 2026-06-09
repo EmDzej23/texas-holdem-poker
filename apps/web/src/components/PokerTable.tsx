@@ -345,7 +345,14 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
               )}
               {walletBalanceCents !== null && walletBalanceCents <= 0 && (
                 <div className="mb-3 bg-red-950/40 border border-red-800 rounded-lg px-3 py-2 text-red-400 text-xs">
-                  Your wallet is empty. Add funds first.
+                  Your wallet is empty.{' '}
+                  <a href="/profile" className="underline hover:text-red-300">Add funds in your profile.</a>
+                </div>
+              )}
+              {walletBalanceCents !== null && walletBalanceCents > 0 && Number(buyInInput) > walletBalanceCents && (
+                <div className="mb-3 bg-yellow-950/40 border border-yellow-800 rounded-lg px-3 py-2 text-yellow-300 text-xs">
+                  Insufficient balance. You have {fmt(walletBalanceCents)}.{' '}
+                  <a href="/profile" className="underline hover:text-yellow-200">Add more funds.</a>
                 </div>
               )}
               {walletCapped !== null && walletCapped >= min && (
@@ -392,7 +399,11 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
                 </button>
                 <button
                   onClick={confirmSit}
-                  disabled={!buyInInput || Number(buyInInput) < min}
+                  disabled={
+                    !buyInInput ||
+                    Number(buyInInput) < min ||
+                    (walletBalanceCents !== null && Number(buyInInput) > walletBalanceCents)
+                  }
                   className="flex-1 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Sit Down

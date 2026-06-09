@@ -56,6 +56,8 @@ export class TableRoom {
   private handEventBuffer: GameEvent[] = []; // accumulates events for the current hand
   private readonly ledger: LedgerService | undefined;
   private readonly handRepo: HandRepository | undefined;
+  // Per-seat session keys: deterministic idempotency for buy-in/cashout pairs
+  private seatSessionKeys = new Map<number, string>();
 
   constructor(
     public config: TableConfig,
@@ -173,17 +175,16 @@ export class TableRoom {
   // Seat management
   // ---------------------------------------------------------------------------
 
-  sitPlayer(
+  async sitPlayer(
     connectionId: string,
     verifiedPlayerId: string, // server-verified, not from stale client state
     seatIndex: number,
     buyInCents: number,
     clientSeed: string,
-  ): void {
+  ): Promise<void> {
     const client = this.clients.get(connectionId);
     if (!client) return;
 
-    // Use server-verified identity — client.playerId may be stale on reconnect
     const alreadySat = this.tableSeats.find(
       (s) => s.playerId !== '' && s.playerId === verifiedPlayerId && s.status !== 'empty',
     );
@@ -203,25 +204,57 @@ export class TableRoom {
       return;
     }
 
-    // Record buy-in: player_wallet → player_table_stack
-    // No balance enforcement in dev — chips are issued on demand.
-    if (this.ledger && buyInCents > 0) {
-      void this.ledger.record({
-        idempotencyKey: `buyin:${uuid()}`,
-        description: `Buy-in: ${client.displayName} at ${this.config.tableId}`,
-        debit: { type: 'player_wallet', ownerId: verifiedPlayerId },
-        credit: { type: 'player_table_stack', ownerId: `${verifiedPlayerId}:${this.config.tableId}` },
-        amountCents: buyInCents,
-      }).catch((err: unknown) => console.error('[TableRoom] buy-in ledger error:', err));
-    }
-
+    // Reserve seat immediately to block concurrent sit attempts for same seat
+    const sessionKey = uuid();
+    this.seatSessionKeys.set(seatIndex, sessionKey);
     seat.playerId = verifiedPlayerId;
     seat.displayName = client.displayName;
-    seat.stackCents = buyInCents;
     seat.status = 'waiting';
     seat.isConnected = true;
-
     client.seatIndex = seatIndex;
+
+    // Enforce wallet balance and record buy-in as a single awaited operation
+    if (this.ledger) {
+      let balance: number;
+      try {
+        balance = await this.ledger.getBalance({ type: 'player_wallet', ownerId: verifiedPlayerId });
+      } catch (err) {
+        console.error('[TableRoom] balance check error:', err);
+        this.releaseSeatReservation(seat, client);
+        this.seatSessionKeys.delete(seatIndex);
+        this.sendError(connectionId, 'INTERNAL_ERROR', 'Could not verify balance. Try again.');
+        return;
+      }
+
+      if (balance < buyInCents) {
+        this.releaseSeatReservation(seat, client);
+        this.seatSessionKeys.delete(seatIndex);
+        this.sendError(
+          connectionId,
+          'INSUFFICIENT_FUNDS',
+          `Insufficient balance: you have ${balance} but need ${buyInCents}`,
+        );
+        return;
+      }
+
+      try {
+        await this.ledger.record({
+          idempotencyKey: `buyin:${sessionKey}`,
+          description: `Buy-in: ${client.displayName} at ${this.config.tableId}`,
+          debit: { type: 'player_wallet', ownerId: verifiedPlayerId },
+          credit: { type: 'player_table_stack', ownerId: `${verifiedPlayerId}:${this.config.tableId}` },
+          amountCents: buyInCents,
+        });
+      } catch (err) {
+        console.error('[TableRoom] buy-in ledger error:', err);
+        this.releaseSeatReservation(seat, client);
+        this.seatSessionKeys.delete(seatIndex);
+        this.sendError(connectionId, 'BUYIN_FAILED', 'Failed to record buy-in. Please try again.');
+        return;
+      }
+    }
+
+    seat.stackCents = buyInCents;
 
     this.broadcast({
       type: 'seat:updated',
@@ -233,6 +266,15 @@ export class TableRoom {
     });
 
     this.maybeStartHand();
+  }
+
+  /** Undo a provisional seat reservation after a failed async buy-in. */
+  private releaseSeatReservation(seat: SeatInfo, client: ConnectedClient): void {
+    seat.playerId = '';
+    seat.displayName = '';
+    seat.status = 'empty';
+    seat.isConnected = false;
+    client.seatIndex = undefined;
   }
 
   standPlayer(connectionId: string): void {
@@ -265,15 +307,17 @@ export class TableRoom {
     const client = this.clients.get(connectionId);
     if (!client || client.seatIndex === undefined) return;
 
-    const seat = this.tableSeats.find((s) => s.seatIndex === client.seatIndex);
+    const seatIndex = client.seatIndex;
+    const seat = this.tableSeats.find((s) => s.seatIndex === seatIndex);
     if (!seat) return;
 
-    // Record cashout: player_table_stack → player_wallet (return remaining chips)
+    // Return remaining chips to wallet — use the session key from buy-in for idempotency
     if (this.ledger && seat.stackCents > 0) {
       const playerId = seat.playerId;
       const amount = seat.stackCents;
+      const sessionKey = this.seatSessionKeys.get(seatIndex) ?? uuid();
       void this.ledger.record({
-        idempotencyKey: `cashout:${uuid()}`,
+        idempotencyKey: `cashout:${sessionKey}`,
         description: `Cash-out: ${seat.displayName} from ${this.config.tableId}`,
         debit: { type: 'player_table_stack', ownerId: `${playerId}:${this.config.tableId}` },
         credit: { type: 'player_wallet', ownerId: playerId },
@@ -281,6 +325,7 @@ export class TableRoom {
       }).catch((err: unknown) => console.error('[TableRoom] cash-out ledger error:', err));
     }
 
+    this.seatSessionKeys.delete(seatIndex);
     seat.playerId = '';
     seat.displayName = '';
     seat.stackCents = 0;
@@ -545,6 +590,9 @@ export class TableRoom {
   private removeZeroChipPlayers(): void {
     for (const seat of this.tableSeats) {
       if (seat.status === 'empty' || seat.stackCents > 0) continue;
+      // No cashout ledger entry needed: wallet was already debited on buy-in,
+      // and there are no chips to return. Net wallet correctly reflects the loss.
+      this.seatSessionKeys.delete(seat.seatIndex);
       for (const [, client] of this.clients.entries()) {
         if (client.seatIndex === seat.seatIndex) {
           client.seatIndex = undefined;
@@ -608,18 +656,19 @@ export class TableRoom {
     this.handEventBuffer = [];
     this.pendingStand.clear();
     for (const seat of this.tableSeats) {
-      // Return any remaining chips to wallet before clearing
       if (this.ledger && seat.stackCents > 0 && seat.playerId) {
         const playerId = seat.playerId;
         const amount = seat.stackCents;
+        const sessionKey = this.seatSessionKeys.get(seat.seatIndex) ?? uuid();
         void this.ledger.record({
-          idempotencyKey: `cashout:${uuid()}`,
+          idempotencyKey: `cashout:${sessionKey}`,
           description: `Admin reset cash-out: ${seat.displayName} from ${this.config.tableId}`,
           debit: { type: 'player_table_stack', ownerId: `${playerId}:${this.config.tableId}` },
           credit: { type: 'player_wallet', ownerId: playerId },
           amountCents: amount,
         }).catch((err: unknown) => console.error('[TableRoom] admin reset cash-out error:', err));
       }
+      this.seatSessionKeys.delete(seat.seatIndex);
       seat.playerId = '';
       seat.displayName = '';
       seat.stackCents = 0;
@@ -630,7 +679,6 @@ export class TableRoom {
     for (const client of this.clients.values()) {
       client.seatIndex = undefined;
     }
-    // Send fresh table snapshot to every connected client
     for (const connId of this.clients.keys()) {
       this.sendTableState(connId);
     }

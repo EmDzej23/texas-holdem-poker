@@ -37,7 +37,6 @@ export default async function ProfilePage() {
   ]);
 
   const totalDeposited = purchases.filter((p) => p.status === 'approved').reduce((s, p) => s + p.realMoneyMinor, 0);
-  const pendingDeposits = purchases.filter((p) => p.status === 'pending').reduce((s, p) => s + p.realMoneyMinor, 0);
   const totalCashedOut = cashouts.filter((c) => c.status === 'approved').reduce((s, c) => s + c.realMoneyMinor, 0);
   const pendingCashoutAmount = cashouts.filter((c) => c.status === 'pending').reduce((s, c) => s + c.realMoneyMinor, 0);
   const tableNet = handResultRows.reduce((s, r) => s + r.netMinor, 0);
@@ -72,29 +71,21 @@ export default async function ProfilePage() {
           />
         </div>
 
-        {/* Due / Pending */}
-        {(pendingDeposits > 0 || pendingCashoutAmount > 0) && (
-          <div className="bg-yellow-950/40 border border-yellow-800 rounded-xl p-4 space-y-2">
-            <h3 className="text-yellow-300 font-semibold text-sm uppercase tracking-wide">Pending</h3>
-            {pendingDeposits > 0 && (
-              <p className="text-yellow-200 text-sm">
-                Token purchase pending: {formatMoney(pendingDeposits)} due in real life — awaiting admin approval.
-              </p>
-            )}
-            {pendingCashoutAmount > 0 && (
-              <p className="text-yellow-200 text-sm">
-                Cashout awaiting payout: {formatMoney(pendingCashoutAmount)} — tokens held, pending admin settlement.
-              </p>
-            )}
+        {/* Pending cashout */}
+        {pendingCashoutAmount > 0 && (
+          <div className="bg-yellow-950/40 border border-yellow-800 rounded-xl p-4">
+            <p className="text-yellow-200 text-sm">
+              Cashout awaiting payout: {formatMoney(pendingCashoutAmount)} — tokens held, pending admin settlement.
+            </p>
           </div>
         )}
 
         {/* Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-gray-900 rounded-xl p-6">
-            <h2 className="text-lg font-semibold mb-4">Buy tokens</h2>
+            <h2 className="text-lg font-semibold mb-1">Add funds</h2>
             <p className="text-gray-400 text-sm mb-4">
-              1 token = $0.01 · you'll owe the equivalent in real money · tokens credited after admin approval.
+              Funds are added instantly and available for buy-in at any table.
             </p>
             <PurchaseForm />
           </div>

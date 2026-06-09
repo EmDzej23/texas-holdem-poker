@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { getDb, createAdminRepository, createSettlementRepository } from '@poker/db';
 import { formatMoney } from '@/lib/format';
 import Link from 'next/link';
+import { ResetBalancesButton } from './ResetBalancesButton';
 
 export default async function AdminDashboard() {
   const db = getDb();
@@ -59,6 +60,8 @@ export default async function AdminDashboard() {
         <Link href="/admin/reconciliation" className="hover:text-white underline">View full reconciliation report →</Link>
         <Link href="/admin/tables" className="hover:text-white underline">Manage tables →</Link>
       </div>
+
+      <ResetBalancesButton />
     </div>
   );
 }

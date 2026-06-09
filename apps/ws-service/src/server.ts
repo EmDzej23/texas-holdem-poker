@@ -259,7 +259,7 @@ wss.on('connection', (ws: WebSocket, req) => {
 
       case 'seat:sit': {
         if (!playerId || !currentRoom) return;
-        currentRoom.sitPlayer(
+        void currentRoom.sitPlayer(
           connectionId,
           playerId,
           msg.payload.seatIndex,
