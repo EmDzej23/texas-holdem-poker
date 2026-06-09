@@ -1,9 +1,9 @@
-/** Format integer cents as a dollar string: 10025 → "$100.25" */
-export function formatCents(cents: number): string {
+/** Format integer cents as a currency string: 10025 → "$100.25" */
+export function formatCents(cents: number, symbol = '$'): string {
   const dollars = Math.floor(Math.abs(cents) / 100);
   const remainder = Math.abs(cents) % 100;
   const sign = cents < 0 ? '-' : '';
-  return `${sign}$${dollars}.${String(remainder).padStart(2, '0')}`;
+  return `${sign}${symbol}${dollars}.${String(remainder).padStart(2, '0')}`;
 }
 
 /** Format integer minor units as currency: 10000 → "$100.00" */

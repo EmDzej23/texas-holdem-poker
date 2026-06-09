@@ -138,6 +138,8 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
 
   const totalPot = (tableState?.pots ?? []).reduce((s, p) => s + p.amountCents, 0);
   const config = tableState?.config;
+  const sym = config?.currencySymbol ?? '$';
+  const fmt = (c: number): string => formatCents(c, sym);
 
   function handleSitClick(seatIndex: number) {
     if (!playerId) {
@@ -172,12 +174,12 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
           <span className="text-gray-400 text-xs sm:text-sm">Table {tableId}</span>
           {config && (
             <span className="text-gray-500 text-xs hidden sm:inline">
-              {formatCents(config.smallBlindCents)}/{formatCents(config.bigBlindCents)} · rake {config.rakePercent}%
+              {fmt(config.smallBlindCents)}/{fmt(config.bigBlindCents)} · rake {config.rakePercent}%
             </span>
           )}
           {config && (
             <span className="text-gray-500 text-xs sm:hidden">
-              {formatCents(config.smallBlindCents)}/{formatCents(config.bigBlindCents)}
+              {fmt(config.smallBlindCents)}/{fmt(config.bigBlindCents)}
             </span>
           )}
         </div>
@@ -191,7 +193,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
           )}
           {mySeat && (
             <span className="text-green-400 text-xs sm:text-sm font-semibold">
-              {formatCents(mySeat.stackCents)}
+              {fmt(mySeat.stackCents)}
             </span>
           )}
           {mySeat && (
@@ -243,7 +245,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
             {totalPot > 0 && (
               <div key={totalPot} className="bg-black/40 rounded-full px-3 py-0.5 sm:px-4 sm:py-1 animate-pot-grow">
                 <span className="text-white font-bold text-xs sm:text-sm">
-                  Pot: {formatCents(totalPot)}
+                  Pot: {fmt(totalPot)}
                 </span>
                 {(tableState?.pots ?? []).length > 1 && (
                   <span className="text-gray-300 text-xs ml-2">
@@ -349,7 +351,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
                   }`}
                 >
                   <div className="text-xs text-gray-400 mb-0.5">All available</div>
-                  <div className="font-bold text-lg">{formatCents(walletCapped)}</div>
+                  <div className="font-bold text-lg">{fmt(walletCapped)}</div>
                   {(walletBalanceCents ?? 0) > max && (
                     <div className="text-xs text-gray-500">Capped at table max</div>
                   )}
@@ -369,7 +371,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
                 />
                 {config && (
                   <p className="text-gray-500 text-xs mt-1">
-                    Range: {formatCents(min)} – {formatCents(max)}
+                    Range: {fmt(min)} – {fmt(max)}
                   </p>
                 )}
               </div>

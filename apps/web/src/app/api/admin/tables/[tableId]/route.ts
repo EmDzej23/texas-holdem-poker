@@ -8,7 +8,7 @@ function wsSecret() {
   return process.env['WS_ADMIN_SECRET'] ?? '';
 }
 
-// PATCH /api/admin/tables/[tableId] — update rake settings
+// PATCH /api/admin/tables/[tableId] — update table config
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ tableId: string }> },
@@ -17,7 +17,15 @@ export async function PATCH(
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { tableId } = await params;
-  const body = (await req.json()) as { rakePercent?: number; rakeCapCents?: number };
+  const body = (await req.json()) as {
+    smallBlindCents?: number;
+    bigBlindCents?: number;
+    minBuyInCents?: number;
+    maxBuyInCents?: number;
+    rakePercent?: number;
+    rakeCapCents?: number;
+    currencySymbol?: string;
+  };
 
   try {
     const upstream = await fetch(`${wsUrl()}/admin/update-table`, {

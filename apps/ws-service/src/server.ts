@@ -168,11 +168,20 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (req.method === 'PATCH' && url === '/admin/update-table') {
     if (!requireAdminSecret(req, res)) return;
     const body = await readBody(req);
-    const { tableId, rakePercent, rakeCapCents } =
-      JSON.parse(body) as { tableId: string; rakePercent?: number; rakeCapCents?: number };
+    const { tableId, ...patch } =
+      JSON.parse(body) as {
+        tableId: string;
+        smallBlindCents?: number;
+        bigBlindCents?: number;
+        minBuyInCents?: number;
+        maxBuyInCents?: number;
+        rakePercent?: number;
+        rakeCapCents?: number;
+        currencySymbol?: string;
+      };
     const room = rooms.get(tableId);
     if (!room) { json(res, 404, { error: 'Table not found' }); return; }
-    await room.updateConfig({ rakePercent, rakeCapCents });
+    await room.updateConfig(patch);
     json(res, 200, { ok: true, tableId, rakePercent: room.config.rakePercent });
     return;
   }

@@ -115,6 +115,7 @@ export interface TableStatePayload {
     maxBuyInCents: Cents;
     maxSeats: number;
     rakePercent: number;
+    currencySymbol: string;
   };
   seats: PublicSeatView[];
   phase: Phase;

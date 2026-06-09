@@ -581,10 +581,23 @@ export class TableRoom {
     return this.tableSeats.filter((s) => s.status !== 'empty').length;
   }
 
-  /** Update rake settings (takes effect on the next hand). */
-  async updateConfig(patch: { rakePercent?: number | undefined; rakeCapCents?: number | undefined }): Promise<void> {
+  /** Update table settings (takes effect on the next hand). */
+  async updateConfig(patch: {
+    smallBlindCents?: number | undefined;
+    bigBlindCents?: number | undefined;
+    minBuyInCents?: number | undefined;
+    maxBuyInCents?: number | undefined;
+    rakePercent?: number | undefined;
+    rakeCapCents?: number | undefined;
+    currencySymbol?: string | undefined;
+  }): Promise<void> {
+    if (patch.smallBlindCents !== undefined) this.config.smallBlindCents = patch.smallBlindCents;
+    if (patch.bigBlindCents !== undefined) this.config.bigBlindCents = patch.bigBlindCents;
+    if (patch.minBuyInCents !== undefined) this.config.minBuyInCents = patch.minBuyInCents;
+    if (patch.maxBuyInCents !== undefined) this.config.maxBuyInCents = patch.maxBuyInCents;
     if (patch.rakePercent !== undefined) this.config.rakePercent = patch.rakePercent;
     if (patch.rakeCapCents !== undefined) this.config.rakeCapCents = patch.rakeCapCents;
+    if (patch.currencySymbol !== undefined) this.config.currencySymbol = patch.currencySymbol;
     await this.saveState();
   }
 
@@ -657,6 +670,7 @@ export class TableRoom {
         maxBuyInCents: this.config.maxBuyInCents,
         maxSeats: this.config.maxSeats,
         rakePercent: this.config.rakePercent,
+        currencySymbol: this.config.currencySymbol ?? '$',
       },
       seats: this.tableSeats.map(toPublicSeatView),
       phase: this.handState?.phase ?? 'waiting',

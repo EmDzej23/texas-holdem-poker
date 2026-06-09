@@ -35,6 +35,7 @@ export interface TableConfig {
   rakePercent: number;      // e.g. 5 = 5 %
   rakeCapCents: Cents;
   turnTimeoutMs: number;    // ms before auto-fold/check
+  currencySymbol?: string;  // display only, e.g. '$', '€', '£'
 }
 
 // ---------------------------------------------------------------------------
