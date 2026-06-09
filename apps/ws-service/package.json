@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "(cd ../.. && pnpm --filter @poker/engine build && pnpm --filter @poker/shared build && pnpm --filter @poker/db build) && tsc -p tsconfig.json",
-    "dev": "tsx --env-file=.env watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {
