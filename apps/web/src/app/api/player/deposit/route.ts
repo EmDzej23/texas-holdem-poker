@@ -45,7 +45,8 @@ export async function POST(req: Request) {
     const balances = await getWalletBalancesByCurrency(db, session.user.id);
     return NextResponse.json({ balances });
   } catch (err) {
-    console.error('[POST /api/player/deposit]', err);
-    return NextResponse.json({ error: 'Failed to add funds' }, { status: 500 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[POST /api/player/deposit]', msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
