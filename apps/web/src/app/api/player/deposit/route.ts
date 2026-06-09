@@ -6,28 +6,34 @@ import { LedgerService } from '@poker/engine';
 import { randomUUID } from 'node:crypto';
 
 export async function POST(req: Request) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const body = await req.json() as { amountCents?: unknown; currencySymbol?: unknown };
-  const amountCents = Number(body.amountCents);
-  const currencySymbol = typeof body.currencySymbol === 'string' && body.currencySymbol.trim()
-    ? body.currencySymbol.trim()
-    : '$';
-
-  if (!Number.isInteger(amountCents) || amountCents < 100 || amountCents > 10_000_000) {
-    return NextResponse.json(
-      { error: 'amountCents must be an integer between 100 and 10,000,000' },
-      { status: 400 },
-    );
-  }
-
-  const db = getDb();
-  const ledger = new LedgerService(createPgLedgerStore(db));
-
   try {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    let body: { amountCents?: unknown; currencySymbol?: unknown };
+    try {
+      body = await req.json() as { amountCents?: unknown; currencySymbol?: unknown };
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
+
+    const amountCents = Number(body.amountCents);
+    const currencySymbol = typeof body.currencySymbol === 'string' && body.currencySymbol.trim()
+      ? body.currencySymbol.trim()
+      : '$';
+
+    if (!Number.isInteger(amountCents) || amountCents < 100 || amountCents > 10_000_000) {
+      return NextResponse.json(
+        { error: 'amountCents must be an integer between 100 and 10,000,000' },
+        { status: 400 },
+      );
+    }
+
+    const db = getDb();
+    const ledger = new LedgerService(createPgLedgerStore(db));
+
     await ledger.record({
       idempotencyKey: `deposit:${randomUUID()}`,
       description: `Deposit: player ${session.user.id}`,

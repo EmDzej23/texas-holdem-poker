@@ -33,8 +33,12 @@ export function PurchaseForm({ defaultCurrency = '$' }: { defaultCurrency?: stri
       router.refresh();
       setTimeout(() => setAdded(null), 3000);
     } else {
-      const data = await res.json() as { error?: string };
-      setError(data.error ?? 'Failed to add funds');
+      let msg = 'Failed to add funds';
+      try {
+        const data = await res.json() as { error?: string };
+        msg = data.error ?? msg;
+      } catch { /* server returned non-JSON error page */ }
+      setError(msg);
     }
   }
 
