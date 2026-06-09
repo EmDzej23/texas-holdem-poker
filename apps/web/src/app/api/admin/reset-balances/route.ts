@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/admin-auth';
 import { getDb } from '@poker/db';
-import { ledgerEntries, tokenPurchases, cashouts } from '@poker/db';
-import { eq } from 'drizzle-orm';
+import { ledgerEntries, tokenPurchases, cashouts, sessions, handResults, handActions, hands } from '@poker/db';
 
 export async function DELETE() {
   if (!await getAdminSession()) {
@@ -12,13 +11,14 @@ export async function DELETE() {
   const db = getDb();
 
   try {
+    // Delete in dependency order (child rows first)
+    await db.delete(handResults);
+    await db.delete(handActions);
+    await db.delete(hands);
+    await db.delete(sessions);
     await db.delete(ledgerEntries);
-    await db.update(tokenPurchases)
-      .set({ status: 'cancelled' })
-      .where(eq(tokenPurchases.status, 'pending'));
-    await db.update(cashouts)
-      .set({ status: 'cancelled' })
-      .where(eq(cashouts.status, 'pending'));
+    await db.delete(tokenPurchases);
+    await db.delete(cashouts);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
