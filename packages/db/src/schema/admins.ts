@@ -25,5 +25,12 @@ export const adminAuditLog = pgTable(
   ],
 );
 
+export const adminEmailGrants = pgTable('admin_email_grants', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: text('email').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type AdminRow = typeof admins.$inferSelect;
 export type AdminAuditLogRow = typeof adminAuditLog.$inferSelect;
+export type AdminEmailGrantRow = typeof adminEmailGrants.$inferSelect;

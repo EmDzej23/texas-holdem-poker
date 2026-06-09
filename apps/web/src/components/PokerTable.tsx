@@ -56,6 +56,7 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
   const [showVerifier, setShowVerifier] = useState(false);
   const [buyInInput, setBuyInInput] = useState('');
   const [pendingSeatIndex, setPendingSeatIndex] = useState<number | null>(null);
+  const [walletBalanceCents, setWalletBalanceCents] = useState<number | null>(null);
   const [winnerData, setWinnerData] = useState<{ winners: WinnerDisplayInfo[]; isFoldWin: boolean } | null>(null);
   const [newHandDealerName, setNewHandDealerName] = useState<string | null>(null);
   const [newHandKey, setNewHandKey] = useState(0);
@@ -145,6 +146,13 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
     }
     setPendingSeatIndex(seatIndex);
     setBuyInInput(String(config?.minBuyInCents ?? 4000));
+    setWalletBalanceCents(null);
+    fetch('/api/player/balance')
+      .then((r) => r.json())
+      .then((d: { walletBalanceCents?: number }) => {
+        if (typeof d.walletBalanceCents === 'number') setWalletBalanceCents(d.walletBalanceCents);
+      })
+      .catch(() => {});
   }
 
   function confirmSit() {
@@ -309,43 +317,82 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
       )}
 
       {/* Buy-in dialog */}
-      {pendingSeatIndex !== null && (
-        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 sm:p-6 w-full max-w-sm">
-            <h3 className="text-white font-bold mb-4">Sit at Seat {pendingSeatIndex}</h3>
-            <div className="mb-4">
-              <label className="text-gray-400 text-sm mb-1 block">Buy-in (cents)</label>
-              <input
-                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white"
-                value={buyInInput}
-                onChange={(e) => setBuyInInput(e.target.value)}
-                type="number"
-                min={config?.minBuyInCents ?? 0}
-                max={config?.maxBuyInCents ?? 999999}
-              />
-              {config && (
-                <p className="text-gray-500 text-xs mt-1">
-                  {formatCents(config.minBuyInCents)} – {formatCents(config.maxBuyInCents)}
-                </p>
+      {pendingSeatIndex !== null && (() => {
+        const min = config?.minBuyInCents ?? 0;
+        const max = config?.maxBuyInCents ?? 999999;
+        // Clamp wallet balance to table limits
+        const walletCapped = walletBalanceCents !== null
+          ? Math.min(Math.max(walletBalanceCents, min), max)
+          : null;
+        return (
+          <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 sm:p-6 w-full max-w-sm">
+              <h3 className="text-white font-bold mb-1">Seat {pendingSeatIndex}</h3>
+              <p className="text-gray-400 text-xs mb-4">Choose how much to bring to the table</p>
+
+              {/* Wallet balance quick-pick */}
+              {walletBalanceCents === null && (
+                <div className="mb-3 text-gray-500 text-xs text-center py-2">Loading balance…</div>
               )}
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setPendingSeatIndex(null)}
-                className="flex-1 py-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmSit}
-                className="flex-1 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold"
-              >
-                Sit Down
-              </button>
+              {walletBalanceCents !== null && walletBalanceCents <= 0 && (
+                <div className="mb-3 bg-red-950/40 border border-red-800 rounded-lg px-3 py-2 text-red-400 text-xs">
+                  Your wallet is empty. Add funds first.
+                </div>
+              )}
+              {walletCapped !== null && walletCapped >= min && (
+                <button
+                  onClick={() => setBuyInInput(String(walletCapped))}
+                  className={`w-full mb-3 py-3 rounded-xl border-2 text-left px-4 transition-colors ${
+                    buyInInput === String(walletCapped)
+                      ? 'border-yellow-400 bg-yellow-900/30 text-white'
+                      : 'border-gray-600 bg-gray-800/60 hover:border-gray-400 text-gray-200'
+                  }`}
+                >
+                  <div className="text-xs text-gray-400 mb-0.5">All available</div>
+                  <div className="font-bold text-lg">{formatCents(walletCapped)}</div>
+                  {(walletBalanceCents ?? 0) > max && (
+                    <div className="text-xs text-gray-500">Capped at table max</div>
+                  )}
+                </button>
+              )}
+
+              {/* Custom amount */}
+              <div className="mb-4">
+                <label className="text-gray-400 text-xs mb-1 block">Custom amount</label>
+                <input
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-yellow-400 focus:outline-none"
+                  value={buyInInput}
+                  onChange={(e) => setBuyInInput(e.target.value)}
+                  type="number"
+                  min={min}
+                  max={max}
+                />
+                {config && (
+                  <p className="text-gray-500 text-xs mt-1">
+                    Range: {formatCents(min)} – {formatCents(max)}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPendingSeatIndex(null)}
+                  className="flex-1 py-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmSit}
+                  disabled={!buyInInput || Number(buyInInput) < min}
+                  className="flex-1 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Sit Down
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Hand verifier panel */}
       {showVerifier && latestVerify && (

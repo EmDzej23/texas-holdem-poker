@@ -15,6 +15,7 @@
  *   - Regulatory: geo-block based on IP jurisdiction.
  */
 
+import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuid } from 'uuid';
 import { TableRoom } from './tableRoom.js';
@@ -24,6 +25,7 @@ import type { ClientMessage } from '@poker/shared';
 import { isClientMessage } from '@poker/shared';
 
 const PORT = Number(process.env['WS_PORT'] ?? 8080);
+const ADMIN_SECRET = process.env['WS_ADMIN_SECRET'] ?? '';
 
 const store = createMemoryTableStore();
 const rooms = new Map<string, TableRoom>();
@@ -42,7 +44,6 @@ const defaultConfig: TableConfig = {
 };
 
 const defaultRoom = new TableRoom(defaultConfig, store);
-defaultRoom.clearAllSeats(); // start clean on every (re)start
 rooms.set(defaultConfig.tableId, defaultRoom);
 
 await store.setTable({
@@ -54,9 +55,44 @@ await store.setTable({
   lastActivityAt: Date.now(),
 });
 
-const wss = new WebSocketServer({ port: PORT });
+// HTTP server — shared with WebSocket server, also handles admin REST endpoints
+const httpServer = http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, x-admin-secret');
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-console.log(`[ws-service] listening on ws://localhost:${PORT}`);
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url?.startsWith('/admin/reset-table')) {
+    if (!ADMIN_SECRET || req.headers['x-admin-secret'] !== ADMIN_SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      const { tableId } = (body ? JSON.parse(body) : {}) as { tableId?: string };
+      const room = rooms.get(tableId ?? 'table-1');
+      if (room) room.clearAllSeats();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, tableId: tableId ?? 'table-1' }));
+    });
+    return;
+  }
+
+  res.writeHead(404);
+  res.end();
+});
+
+const wss = new WebSocketServer({ server: httpServer });
+httpServer.listen(PORT, () => {
+  console.log(`[ws-service] listening on ws://localhost:${PORT}`);
+});
 
 wss.on('connection', (ws: WebSocket, req) => {
   const connectionId = uuid();

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { getDb, createAdminRepository, createSettlementRepository } from '@poker/db';
 import { formatMoney } from '@/lib/format';
 import Link from 'next/link';
+import { TableResetButton } from './TableResetButton';
 
 export default async function AdminDashboard() {
   const db = getDb();
@@ -58,6 +59,17 @@ export default async function AdminDashboard() {
       <Link href="/admin/reconciliation" className="inline-block text-sm text-gray-400 hover:text-white underline">
         View full reconciliation report →
       </Link>
+
+      {/* Table management */}
+      <div className="border border-gray-700 rounded-xl p-5">
+        <h2 className="font-semibold mb-4">Table management</h2>
+        <div className="flex flex-wrap gap-3">
+          <TableResetButton tableId="table-1" />
+        </div>
+        <p className="text-xs text-gray-500 mt-3">
+          Reset removes all players from a table and cancels the active hand.
+        </p>
+      </div>
     </div>
   );
 }
