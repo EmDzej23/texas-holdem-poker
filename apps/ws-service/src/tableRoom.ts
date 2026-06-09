@@ -354,45 +354,83 @@ export class TableRoom {
   // ---------------------------------------------------------------------------
 
   private processEvents(events: GameEvent[]): void {
-    for (const event of events) {
-      this.broadcastEvent(event);
+    // Count phase:changed events — more than 1 means an all-in runout (cards dealt without action)
+    const phaseChangedCount = events.filter((e) => e.type === 'phase:changed').length;
 
-      if (event.type === 'cards:dealt') {
-        // Send private hole cards only to the owning player
-        const seat = this.handState?.seats.find((s) => s.seatIndex === event.seatIndex);
-        if (seat?.holeCards) {
-          const connId = this.connectionIdForPlayer(event.playerId);
-          if (connId) {
-            this.sendToConnection(connId, {
-              type: 'hand:cards',
-              payload: { seatIndex: seat.seatIndex, holeCards: seat.holeCards },
-              ts: new Date().toISOString(),
-            });
-          }
+    if (phaseChangedCount <= 1) {
+      // Normal hand action: broadcast everything immediately
+      for (const event of events) {
+        this.handleEvent(event);
+      }
+      return;
+    }
+
+    // All-in runout: stagger each street reveal so players can see the cards unfold
+    const STREET_GAP_MS = 1400;   // pause between each new street
+    const POST_RIVER_MS  = 500;   // brief pause after river before showing result
+
+    let streetsSeen = 0;
+    let lastStreetDelay = 0;
+
+    for (const event of events) {
+      let delay: number;
+
+      if (event.type === 'phase:changed') {
+        delay = streetsSeen * STREET_GAP_MS;
+        lastStreetDelay = delay;
+        streetsSeen++;
+      } else if (streetsSeen >= phaseChangedCount) {
+        // Everything after the last street card (showdown / pot:awarded / hand:complete)
+        delay = lastStreetDelay + POST_RIVER_MS;
+      } else {
+        // pots:updated and other non-street events between streets
+        delay = lastStreetDelay;
+      }
+
+      const capturedEvent = event;
+      setTimeout(() => this.handleEvent(capturedEvent), delay);
+    }
+  }
+
+  /** Broadcast one event and apply any side-effects (hole cards, next-hand timer, etc). */
+  private handleEvent(event: GameEvent): void {
+    this.broadcastEvent(event);
+
+    if (event.type === 'cards:dealt') {
+      // Send private hole cards only to the owning player
+      const seat = this.handState?.seats.find((s) => s.seatIndex === event.seatIndex);
+      if (seat?.holeCards) {
+        const connId = this.connectionIdForPlayer(event.playerId);
+        if (connId) {
+          this.sendToConnection(connId, {
+            type: 'hand:cards',
+            payload: { seatIndex: seat.seatIndex, holeCards: seat.holeCards },
+            ts: new Date().toISOString(),
+          });
         }
       }
+    }
 
-      if (event.type === 'hand:complete' && this.handState?.commitment.serverSeed) {
-        // Reveal seed to all players for verification
-        this.broadcast({
-          type: 'hand:verify',
-          payload: {
-            handId: event.handId,
-            serverSeed: this.handState.commitment.serverSeed,
-            clientSeed: this.handState.commitment.clientSeed,
-            shuffleIndex: this.handState.commitment.shuffleIndex,
-            serverSeedHash: this.handState.commitment.serverSeedHash,
-          },
-          ts: new Date().toISOString(),
-        });
+    if (event.type === 'hand:complete' && this.handState?.commitment.serverSeed) {
+      // Reveal seed to all players for verification
+      this.broadcast({
+        type: 'hand:verify',
+        payload: {
+          handId: event.handId,
+          serverSeed: this.handState.commitment.serverSeed,
+          clientSeed: this.handState.commitment.clientSeed,
+          shuffleIndex: this.handState.commitment.shuffleIndex,
+          serverSeedHash: this.handState.commitment.serverSeedHash,
+        },
+        ts: new Date().toISOString(),
+      });
 
-        // Start next hand after delay — gives clients time to display winner overlay
-        setTimeout(() => {
-          this.processPendingStands();
-          this.removeZeroChipPlayers();
-          this.maybeStartHand();
-        }, 5500);
-      }
+      // Start next hand after delay — gives clients time to display winner overlay
+      setTimeout(() => {
+        this.processPendingStands();
+        this.removeZeroChipPlayers();
+        this.maybeStartHand();
+      }, 5500);
     }
   }
 

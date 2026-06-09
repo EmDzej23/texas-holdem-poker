@@ -60,18 +60,34 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
   const [newHandDealerName, setNewHandDealerName] = useState<string | null>(null);
   const [newHandKey, setNewHandKey] = useState(0);
 
-  const handCompleteSeenRef = useRef(0);
-  const handStartedSeenRef = useRef(0);
+  // Use handId (unique per hand) as the dedup key — count-based refs fail across hands
+  const lastShownCompleteHandId = useRef<string | null>(null);
+  const lastShownStartedHandId = useRef<string | null>(null);
 
   const dismissWinner = useCallback(() => setWinnerData(null), []);
 
-  // Detect hand:complete → build winner overlay
+  // Single effect handles both hand:started and hand:complete via handId keying.
+  // events[0] is always hand:started (useTableSocket resets to [evt] on each new hand).
+  // events[events.length-1] is hand:complete at the end of a hand.
   useEffect(() => {
-    const completeCount = events.filter((e) => e.type === 'hand:complete').length;
-    if (completeCount === 0 || completeCount <= handCompleteSeenRef.current) return;
-    handCompleteSeenRef.current = completeCount;
+    if (events.length === 0) return;
 
-    // Collect all pot:awarded winners this hand
+    // ── New hand started ──────────────────────────────────────────────────────
+    const firstEvt = events[0];
+    if (firstEvt?.type === 'hand:started' && firstEvt.handId !== lastShownStartedHandId.current) {
+      lastShownStartedHandId.current = firstEvt.handId;
+      setWinnerData(null);
+      const dealerSeat = tableState?.seats.find((s) => s.seatIndex === firstEvt.dealerSeat);
+      setNewHandDealerName(dealerSeat?.displayName ?? null);
+      setNewHandKey((k) => k + 1);
+    }
+
+    // ── Hand complete ─────────────────────────────────────────────────────────
+    const lastEvt = events[events.length - 1];
+    if (lastEvt?.type !== 'hand:complete') return;
+    if (lastEvt.handId === lastShownCompleteHandId.current) return; // already processed
+    lastShownCompleteHandId.current = lastEvt.handId;
+
     const awardedEvts = events.filter(
       (e): e is Extract<typeof e, { type: 'pot:awarded' }> => e.type === 'pot:awarded',
     );
@@ -79,9 +95,6 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
       (e): e is Extract<typeof e, { type: 'showdown' }> => e.type === 'showdown',
     );
 
-    const isFoldWin = !showdownEvt;
-
-    // Aggregate amounts per winner (multiple side pots can have same winner)
     const amountByPlayer = new Map<string, number>();
     for (const evt of awardedEvts) {
       for (const w of evt.winners) {
@@ -104,32 +117,9 @@ export function PokerTable({ tableId, playerId, displayName, sessionLoading = fa
     });
 
     if (winners.length > 0) {
-      setWinnerData({ winners, isFoldWin });
+      setWinnerData({ winners, isFoldWin: !showdownEvt });
     }
   }, [events, tableState?.seats, playerId]);
-
-  // Detect hand:started → show new hand banner; reset winner tracking
-  useEffect(() => {
-    const startedCount = events.filter((e) => e.type === 'hand:started').length;
-    if (startedCount === 0 || startedCount <= handStartedSeenRef.current) return;
-    handStartedSeenRef.current = startedCount;
-
-    // Reset hand:complete counter so next hand's complete is detected fresh
-    handCompleteSeenRef.current = 0;
-
-    // Dismiss winner overlay when new hand starts
-    setWinnerData(null);
-
-    // Show new hand banner — find dealer name
-    const startEvt = [...events].reverse().find(
-      (e): e is Extract<typeof e, { type: 'hand:started' }> => e.type === 'hand:started',
-    );
-    if (startEvt) {
-      const dealerSeat = tableState?.seats.find((s) => s.seatIndex === startEvt.dealerSeat);
-      setNewHandDealerName(dealerSeat?.displayName ?? null);
-      setNewHandKey((k) => k + 1);
-    }
-  }, [events, tableState?.seats]);
 
   const mySeat = tableState?.seats.find((s) => s.playerId === playerId);
   const isMyTurn =
