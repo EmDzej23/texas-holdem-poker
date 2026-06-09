@@ -9,7 +9,7 @@ interface TableRow {
   config: TableConfig;
 }
 
-const CURRENCIES = ['$', '€', '£', '₽', '₸', '₿'];
+const CURRENCIES = ['$', '€', '£', '₽', '₸', '₿', 'din'];
 
 function fmtCents(cents: number, sym = '$') {
   return `${sym}${(cents / 100).toFixed(2)}`;
