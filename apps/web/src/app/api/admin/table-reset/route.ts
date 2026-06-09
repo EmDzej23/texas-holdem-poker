@@ -14,19 +14,17 @@ export async function POST(req: Request) {
   const wsUrl = process.env["WS_SERVICE_URL"] ?? "http://localhost:8080";
   const secret = process.env["WS_ADMIN_SECRET"] ?? "";
 
-  const upstream = await fetch(`${wsUrl}/admin/reset-table`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-secret": secret,
-    },
-    body: JSON.stringify({ tableId: tableId ?? "table-1" }),
-  });
-
-  if (!upstream.ok) {
-    return NextResponse.json({ error: "WS service error" }, { status: 502 });
+  try {
+    const upstream = await fetch(`${wsUrl}/admin/reset-table`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+      body: JSON.stringify({ tableId: tableId ?? "table-1" }),
+    });
+    const text = await upstream.text();
+    const result = text ? JSON.parse(text) as { ok: boolean; tableId: string } : { ok: false };
+    return NextResponse.json(result, { status: upstream.ok ? 200 : upstream.status });
+  } catch (err) {
+    console.error('[POST /api/admin/table-reset]', err);
+    return NextResponse.json({ error: 'Could not reach ws-service', detail: String(err) }, { status: 502 });
   }
-
-  const result = (await upstream.json()) as { ok: boolean; tableId: string };
-  return NextResponse.json(result);
 }

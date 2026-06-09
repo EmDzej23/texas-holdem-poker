@@ -19,11 +19,20 @@ export async function PATCH(
   const { tableId } = await params;
   const body = (await req.json()) as { rakePercent?: number; rakeCapCents?: number };
 
-  const upstream = await fetch(`${wsUrl()}/admin/update-table`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'x-admin-secret': wsSecret() },
-    body: JSON.stringify({ tableId, ...body }),
-  });
-  const result = await upstream.json() as unknown;
-  return NextResponse.json(result, { status: upstream.ok ? 200 : upstream.status });
+  try {
+    const upstream = await fetch(`${wsUrl()}/admin/update-table`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-admin-secret': wsSecret() },
+      body: JSON.stringify({ tableId, ...body }),
+    });
+    const text = await upstream.text();
+    const result = text ? JSON.parse(text) as unknown : {};
+    return NextResponse.json(result, { status: upstream.ok ? 200 : upstream.status });
+  } catch (err) {
+    console.error('[PATCH /api/admin/tables/[tableId]]', err);
+    return NextResponse.json(
+      { error: 'Could not reach ws-service', detail: String(err) },
+      { status: 502 },
+    );
+  }
 }
