@@ -582,10 +582,10 @@ export class TableRoom {
   }
 
   /** Update rake settings (takes effect on the next hand). */
-  updateConfig(patch: { rakePercent?: number | undefined; rakeCapCents?: number | undefined }): void {
+  async updateConfig(patch: { rakePercent?: number | undefined; rakeCapCents?: number | undefined }): Promise<void> {
     if (patch.rakePercent !== undefined) this.config.rakePercent = patch.rakePercent;
     if (patch.rakeCapCents !== undefined) this.config.rakeCapCents = patch.rakeCapCents;
-    void this.saveState();
+    await this.saveState();
   }
 
   /** Remove all players from all seats and cancel any active hand. */

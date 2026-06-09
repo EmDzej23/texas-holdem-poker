@@ -172,7 +172,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       JSON.parse(body) as { tableId: string; rakePercent?: number; rakeCapCents?: number };
     const room = rooms.get(tableId);
     if (!room) { json(res, 404, { error: 'Table not found' }); return; }
-    room.updateConfig({ rakePercent, rakeCapCents });
+    await room.updateConfig({ rakePercent, rakeCapCents });
     json(res, 200, { ok: true, tableId, rakePercent: room.config.rakePercent });
     return;
   }
